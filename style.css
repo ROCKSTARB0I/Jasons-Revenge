@@ -1,0 +1,60 @@
+[hidden] { display: none !important; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #050505; color: #c9c2b4; font-family: "Times New Roman", Georgia, serif; overflow: hidden; }
+#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+#screen { position: fixed; inset: 0; overflow: hidden; display: grid; grid-template-columns: 1.1fr 1fr; align-items: center; gap: 4vw; padding: 5vh 6vw;
+  background: radial-gradient(ellipse at 30% 60%, rgba(0,0,0,0.1), rgba(0,0,0,0.85) 75%); }
+#screen::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(0,0,0,0.75), rgba(0,0,0,0.15) 55%, rgba(0,0,0,0.6)); }
+#grain { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.09; pointer-events: none; mix-blend-mode: screen; z-index: 2; }
+.mask { position: absolute; left: 8vw; top: 50%; height: 88vh; transform: translateY(-50%) rotate(-8deg); color: rgba(210,200,180,0.06); z-index: 0; }
+.title, .roster, .warn { position: relative; z-index: 3; }
+.date { font-family: "Special Elite", "Courier New", monospace; letter-spacing: 0.35em; font-size: 13px; color: #8a1a12; text-transform: uppercase; margin: 0 0 14px; }
+h1 { font-family: "IM Fell English SC", "Times New Roman", serif; font-weight: 400; font-size: clamp(54px, 9vw, 128px); line-height: 0.88; margin: 0 0 22px; color: #ddd3c0; text-shadow: 0 0 40px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,1); letter-spacing: 0.01em; }
+.lede { font-family: "IM Fell English SC", serif; font-size: 20px; line-height: 1.5; color: #8f8778; margin: 0; }
+.paper { position: relative; max-width: 420px; margin-left: auto; padding: 26px 28px 22px; transform: rotate(1.6deg);
+  font-family: "Special Elite", "Courier New", monospace; color: #2a241c;
+  background: linear-gradient(180deg, rgba(0,0,0,0) 0, rgba(0,0,0,0.05) 100%), repeating-linear-gradient(0deg, transparent 0 27px, rgba(60,90,140,0.18) 27px 28px), #cbbfa4;
+  box-shadow: 0 30px 60px rgba(0,0,0,0.8), inset 0 0 60px rgba(70,50,20,0.45); }
+.paper::before { content: ""; position: absolute; top: -10px; left: 50%; width: 90px; height: 22px; margin-left: -45px; background: rgba(200,190,160,0.55); transform: rotate(-3deg); }
+.paper .head { display: flex; justify-content: space-between; font-size: 12px; letter-spacing: 0.12em; border-bottom: 2px solid #2a241c; padding-bottom: 6px; margin-bottom: 10px; }
+.names { margin: 0 0 16px; padding-left: 22px; font-size: 17px; line-height: 28px; }
+.names em { font-style: normal; font-size: 12px; color: #6a5e4a; margin-left: 6px; }
+.names s { text-decoration: none; background: linear-gradient(transparent 45%, #7a0c06 45%, #7a0c06 62%, transparent 62%); }
+.actions { display: flex; flex-direction: column; gap: 6px; }
+.actions button { font-family: "Special Elite", monospace; font-size: 19px; text-align: left; background: none; border: none; border-bottom: 1px dashed rgba(42,36,28,0.4); color: #1e1a14; padding: 8px 4px; letter-spacing: 0.04em; }
+.actions button::before { content: "▸ "; color: transparent; }
+.actions button:hover:not(:disabled) { background: rgba(122,12,6,0.12); color: #6a0a04; }
+.actions button:hover:not(:disabled)::before { color: #7a0c06; }
+.actions button:disabled { opacity: 0.4; }
+#vrNote { min-height: 1em; font-size: 12px; color: #6a2a1a; margin: 10px 0 0; }
+.how { font-size: 13px; line-height: 1.5; color: #3a3226; border-top: 1px solid rgba(42,36,28,0.4); margin-top: 10px; padding-top: 6px; }
+.how p { margin: 6px 0; }
+.how b { color: #6a0a04; font-weight: 400; }
+.stain { position: absolute; right: -18px; bottom: 30px; width: 120px; height: 120px; pointer-events: none;
+  background: radial-gradient(circle at 40% 40%, rgba(110,8,4,0.85) 0 18%, rgba(110,8,4,0.5) 26%, transparent 40%), radial-gradient(circle at 70% 75%, rgba(110,8,4,0.7) 0 6%, transparent 9%), radial-gradient(circle at 20% 80%, rgba(110,8,4,0.6) 0 4%, transparent 6%); mix-blend-mode: multiply; }
+.warn { position: absolute; left: 6vw; bottom: 3vh; margin: 0; font-family: "Special Elite", monospace; font-size: 11px; color: #4a443c; letter-spacing: 0.12em; z-index: 3; }
+button { font: inherit; cursor: pointer; }
+@media (max-width: 760px) {
+  #screen { grid-template-columns: 1fr; overflow-y: auto; padding: 32px 16px; align-content: start; gap: 28px; }
+  .paper { margin: 0 auto; transform: rotate(0.8deg); }
+  .warn { position: static; }
+}
+#hud { position: fixed; left: 16px; bottom: 16px; font: 13px "Courier New", monospace; color: #8a8274; background: rgba(10,8,6,0.55); padding: 8px 12px; min-width: 220px; pointer-events: none; }
+#hud div { display: flex; justify-content: space-between; gap: 18px; }
+#hud b { font-weight: 400; color: #a83a28; }
+#hud .hp { height: 4px; background: #2a0806; margin-top: 6px; }
+#hud .hp i { display: block; height: 100%; background: #8a1a10; }
+#caption { position: fixed; left: 0; right: 0; bottom: 18%; text-align: center; font-size: 26px; color: #c9c2b4; text-shadow: 0 0 10px #000, 0 0 3px #000; pointer-events: none; opacity: 0; transition: opacity 0.2s; padding: 0 16px; }
+#caption i { display: block; font-size: 18px; color: #9a2418; margin-top: 4px; }
+#menu { position: fixed; inset: 0; margin: auto; width: min(560px, calc(100% - 32px)); height: fit-content; max-height: calc(100% - 32px); overflow: auto; background: rgba(6,6,6,0.94); border: 1px solid #4a120c; padding: 24px; text-align: center; }
+#menu h2 { font-weight: 400; font-size: 34px; margin: 0 0 12px; color: #d8d0c0; }
+#menuBody { font-size: 16px; line-height: 1.6; color: #8a8274; margin-bottom: 16px; }
+#menuRows { display: flex; flex-direction: column; gap: 8px; }
+#menu .x { position: absolute; top: 6px; right: 6px; padding: 4px 12px; background: transparent; border: none; color: #6a6256; font-size: 24px; }
+
+/* the logo: heavy slanted slab letters in blood red, with an extruded edge and the glass cracked through it */
+h1.logo { position: relative; font-family: "Alfa Slab One", "Rockwell", serif; font-weight: 400; font-size: clamp(52px, 8.4vw, 118px); line-height: 0.92; margin: 0 0 24px; display: inline-block; transform: skewX(-9deg) rotate(-2deg); letter-spacing: 0.01em; text-transform: uppercase; color: #d4160b; }
+h1.logo span { display: block; color: #d4160b;
+  text-shadow: 0 -1px 0 #ff6a4a, 1px 1px 0 #8a0602, 2px 2px 0 #7a0402, 3px 3px 0 #640202, 4px 4px 0 #4a0000, 5px 5px 0 #340000, 6px 8px 14px rgba(0,0,0,0.9), 0 0 28px rgba(200,10,0,0.35); }
+h1.logo span + span { margin-left: 0.5em; font-size: 0.86em; }
+h1.logo .cracks { position: absolute; inset: -4% -2%; width: 104%; height: 108%; pointer-events: none; }

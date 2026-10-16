@@ -3,8 +3,8 @@
 // they aren't: knocked down, grabbed, dead. Shaped limbs, painted faces and
 // clothes, and wounds that tear the meshes apart.
 import * as THREE from '../vendor/three.module.js';
-import { segDist } from './sim.js?v=2';
-import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=2';
+import { segDist } from './sim.js?v=3';
+import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=3';
 
 const V = THREE.Vector3, R = Math.random;
 const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), mb = new THREE.Matrix4(), UP = new V(0, 1, 0);
@@ -243,6 +243,7 @@ export class Human {
   // ---------------------------------------------------------------- animation
   // Build the pose in the body's own frame, then place it in the world.
   computePose(dt) {
+    if (this.pose === 'sleep') return this.sleepPose();
     const A = this.anim, s = this.s, sp = this.speed, run = Math.min(1, Math.max(0, (sp - 1.6) / 1.6)), walk = Math.min(1, sp / 1.0);
     const T = this.time, pose = this.pose;
     const crouch = pose === 'hide' || pose === 'cower' ? 1 : 0;
@@ -303,6 +304,16 @@ export class Human {
       A[side + 'Fin'].copy(t3.subVectors(A[side + 'Wr'], A[side + 'El']).setLength(0.17).add(A[side + 'Wr']));
     }
   }
+  // asleep on their back in a bunk: head toward +Z, breathing slow (left side is +X lying face up)
+  sleepPose() {
+    const A = this.anim, h = 0.61 + Math.sin(this.time * 1.1) * 0.004, b = Math.sin(this.time * 1.1) * 0.006;
+    const set = (k, x, y, z) => A[k].set(x, y, z);
+    set('pelvis', 0, h + 0.1, 0); set('spine', 0, h + 0.11 + b, 0.21); set('chest', 0, h + 0.12 + b, 0.4); set('neck', 0, h + 0.12, 0.57); set('head', 0.02, h + 0.14, 0.71);
+    for (const [sd, sx] of [['l', 1], ['r', -1]]) {
+      set(sd + 'Sh', sx * 0.19, h + 0.11, 0.49); set(sd + 'El', sx * 0.23, h + 0.07, 0.22); set(sd + 'Wr', sx * 0.21, h + 0.08, -0.02); set(sd + 'Fin', sx * 0.17, h + 0.1, -0.18);
+      set(sd + 'Hip', sx * 0.095, h + 0.09, -0.03); set(sd + 'Kn', sx * 0.11, h + 0.1, -0.45); set(sd + 'An', sx * 0.12, h + 0.08, -0.87); set(sd + 'Toe', sx * 0.13, h + 0.2, -0.9);
+    }
+  }
   // drive the points to the animated pose (or blend toward it while getting up)
   applyPose(dt) {
     this.computePose(dt);
@@ -346,7 +357,7 @@ export class Human {
       if (this.state === 'out' && (this.outT -= dt) <= 0) { this.state = null; this.downT = 0.5; }
     }
     // face
-    const expr = !this.alive ? 'dead' : this.state === 'out' ? 'out' : this.chokeT > 0.4 && this.choked ? 'choke' : this.hp < this.maxHp * 0.55 ? 'bleed' : this.scared ? 'fear' : 'neutral';
+    const expr = !this.alive ? 'dead' : this.state === 'out' || this.pose === 'sleep' ? 'out' : this.chokeT > 0.4 && this.choked ? 'choke' : this.hp < this.maxHp * 0.55 ? 'bleed' : this.scared ? 'fear' : 'neutral';
     if (expr !== this.expr && !this.headGone) { this.expr = expr; this.headMat.map = realFace(this.o.look, expr, this.bruise ?? 0); this.headMat.needsUpdate = true; }
   }
   canStand() { return !['lHip', 'rHip', 'lKn', 'rKn'].some(j => this.severed.has(j)) && !this.split; }

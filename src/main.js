@@ -1,13 +1,14 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=2';
-import { Human } from './body.js?v=2';
-import { Blood } from './blood.js?v=2';
-import { sfx } from './sfx.js?v=2';
-import { score } from './score.js?v=2';
-import { buildCamp, groundAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=2';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=2';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=2';
+import { Sim, STEP, segDist } from './sim.js?v=3';
+import { Human } from './body.js?v=3';
+import { Blood } from './blood.js?v=3';
+import { sfx } from './sfx.js?v=3';
+import { score } from './score.js?v=3';
+import { Rain } from './rain.js?v=3';
+import { buildCamp, groundAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=3';
+import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=3';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=3';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -26,19 +27,28 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.35;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x070b12);
-scene.fog = new THREE.FogExp2(0x0a0f17, 0.042);
+scene.background = new THREE.Color(0x0e1522);
+scene.fog = new THREE.FogExp2(0x101824, 0.03);
 const rig = new THREE.Group(); scene.add(rig);
 const camera = new THREE.PerspectiveCamera(72, 1, 0.04, 600);
 camera.rotation.order = 'YXZ'; camera.position.set(0, 1.75, 0); rig.add(camera);
-scene.add(new THREE.HemisphereLight(0x3a4a66, 0x0c0c0e, 1.15));
-const moonLight = new THREE.DirectionalLight(0x9bb0d6, 1.05); moonLight.position.set(-120, 170, -330); scene.add(moonLight);
+scene.add(new THREE.HemisphereLight(0x5a6c8c, 0x1a1c20, 1.7));
+const moonLight = new THREE.DirectionalLight(0xa8bce0, 1.6); moonLight.position.set(-120, 170, -330); scene.add(moonLight);
 // two lamps that follow you from cabin to cabin (a fixed number of lights keeps the Quest happy)
 const lamps = [0, 1].map(() => { const l = new THREE.PointLight(0xffa860, 0, 7, 1.6); scene.add(l); return l; });
 
 const sim = new Sim(); sim.floorAt = groundAt;
+const hemiL = scene.children.find(o => o.isHemisphereLight);
+const rain = new Rain(scene, groundAt);
+rain.onThunder = () => sfx.thunder();
+const SKY = { clear: { bg: 0x0e1522, fog: 0x101824, density: 0.03, hemi: 1.7 }, wet: { bg: 0x0a0f17, fog: 0x0e141c, density: 0.045, hemi: 1.45 } };
+function setWeather(wet) {
+  const k = wet ? SKY.wet : SKY.clear;
+  scene.background.setHex(k.bg); scene.fog.color.setHex(k.fog); scene.fog.density = k.density; hemiL.intensity = k.hemi;
+  rain.set(wet); sfx.rain(wet);
+}
 const blood = new Blood(scene, sim);
 const camp = buildCamp(scene, sim);
 
@@ -46,7 +56,7 @@ const camp = buildCamp(scene, sim);
 let inVR = false, started = false, paused = false;
 const P = { hp: 100, hurtT: 0, lastHit: -99, y: 0, stamina: 100, sprint: false, sense: 0, senseCd: 0, down: false, moveSpeed: 0 };
 const counselors = [], police = [], tools = [];
-const RUN = { night: 1, t: 0, dawn: 480, over: false, calledAt: -1, policeAt: -1, policeHere: false, carGone: false, carHp: 3, carDriving: null, kills: [], escaped: [] };
+const RUN = { lastAlarm: 0, night: 1, t: 0, dawn: 480, over: false, calledAt: -1, policeAt: -1, policeHere: false, carGone: false, carHp: 3, carDriving: null, kills: [], escaped: [] };
 const victims = () => police.length ? [...counselors, ...police] : counselors;
 const posOf = d => d.mode === 'anim' ? d.root : d.p.pelvis;
 
@@ -115,14 +125,40 @@ function plant(t, at, dir) {
   t.a.locked = t.b.locked = true; t.planted = true;
 }
 function resetTools() {
-  for (const t of tools) { scene.remove(t.mesh); sim.remove(t); }
+  for (const t of tools) { scene.remove(t.mesh); if (t.glint) scene.remove(t.glint); sim.remove(t); }
   tools.length = 0; for (const hs of holsters) hs.tool = null;
   for (const h of allHands()) h.held = null;
   // the machete starts on your back: reach over your right shoulder for it
   const m = makeTool('machete'); holsters[2].tool = m; m.holster = holsters[2];
-  plant(makeTool('axe'), WEAPON_SPOTS.axe, tv.set(0.15, -1, 0.3).normalize());
-  plant(makeTool('pitchfork'), tv2.copy(WEAPON_SPOTS.pitchfork).setY(0.05), tv.set(0.2, -1, -0.25).normalize());
-  plant(makeTool('knife'), tv2.copy(WEAPON_SPOTS.knife).setY(0.82), tv.set(0.1, -1, 0.05).normalize());
+  // the rest are on the way up from the water: a knife in the dock, an axe in a stump on the shore, a pitchfork by the fire path
+  plant(makeTool('knife'), tv2.set(0.7, 0.06, -36), tv.set(0.1, -1, 0.15).normalize());
+  plant(makeTool('axe'), tv2.set(STUMP.x + 0.05, 0.62, STUMP.z), tv.set(0.15, -1, 0.3).normalize());
+  plant(makeTool('pitchfork'), tv2.set(-4.5, 0.02, -21), tv.set(0.15, -1, 0.2).normalize());
+}
+
+// a chopping stump on the shore for the axe
+const STUMP = { x: 8, z: -23 };
+{
+  const st = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.42, 0.6, 12), new THREE.MeshLambertMaterial({ color: 0x4a3626 }));
+  st.position.set(STUMP.x, 0.3, STUMP.z); scene.add(st);
+  const top = new THREE.Mesh(new THREE.CircleGeometry(0.34, 16), new THREE.MeshLambertMaterial({ color: 0x8a6a48 })); top.rotation.x = -Math.PI / 2; top.position.set(STUMP.x, 0.605, STUMP.z); scene.add(top);
+  sim.addBox(new V3(STUMP.x - 0.35, 0, STUMP.z - 0.35), new V3(STUMP.x + 0.35, 0.6, STUMP.z + 0.35), false);
+}
+// moonlight catching the steel of a weapon nobody's holding
+const glintMat = new THREE.SpriteMaterial({ color: 0xcfd8e8, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, map: (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+  const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.15, 'rgba(255,255,255,0.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+  x.fillStyle = 'rgba(255,255,255,0.7)'; x.fillRect(31, 4, 2, 56); x.fillRect(4, 31, 56, 2);   // a star of light
+  return new THREE.CanvasTexture(c); })() });
+function updateGlints(t) {
+  for (const tool of tools) {
+    if (!tool.glint) { tool.glint = new THREE.Sprite(glintMat); tool.glint.scale.setScalar(0.22); scene.add(tool.glint); }
+    const free = !tool.held && !tool.holster && !tool.stuck;
+    tool.glint.visible = free;
+    if (!free) continue;
+    tool.glint.position.set(tool.a.x + (tool.b.x - tool.a.x) * 0.55, tool.a.y + (tool.b.y - tool.a.y) * 0.55 + 0.04, tool.a.z + (tool.b.z - tool.a.z) * 0.55);
+    tool.glint.scale.setScalar(0.2 + 0.18 * Math.max(0, Math.sin(t * 1.7 + tool.a.x)) ** 4 + (P.sense > 0 ? 0.3 : 0));
+  }
 }
 
 // ------------------------------------------------------------ grabbing
@@ -486,19 +522,18 @@ const jpos = () => tv3.set(JUNCTION.x, JUNCTION.y, JUNCTION.z);
 function hitProps(h, t) {
   if ((h.propCd = (h.propCd ?? 0) - 1 / 72) > 0) return;
   const tip = h.tip;
-  if (!PHONE.cut && segDist(bladeA, tip, jpos(), tv3) < 0.28 * 0.28) { h.propCd = 0.35; JUNCTION.hp--; sparks(tip); sfx.clank(tip); sfx.zap(tip); pulse(h, 1, 100); if (JUNCTION.hp <= 0) cutPhone(); }
-  if (GENERATOR.on && segDist(bladeA, tip, tv3.set(GENERATOR.x, 0.6, GENERATOR.z), tv3) < 0.65 * 0.65) { h.propCd = 0.35; GENERATOR.hp--; sparks(tip); sfx.clank(tip); pulse(h, 1, 100); if (GENERATOR.hp <= 0) killPower(); }
-  if (!RUN.carGone && RUN.carHp > 0 && segDist(bladeA, tip, carFront(tv3), tv3) < 1.0) { h.propCd = 0.4; RUN.carHp--; sparks(tip); sfx.clank(tip); pulse(h, 1, 100); if (RUN.carHp <= 0) { caption('Their car isn\'t going anywhere.', 3.5); sfx.hiss(carFront(tv3)); carSmoke = 1; } }
+  if (!PHONE.cut && segDist(bladeA, tip, jpos(), tv3) < 0.28 * 0.28) { h.propCd = 0.35; noise(tip, 14); JUNCTION.hp--; sparks(tip); sfx.clank(tip); sfx.zap(tip); pulse(h, 1, 100); if (JUNCTION.hp <= 0) cutPhone(); }
+  if (GENERATOR.on && segDist(bladeA, tip, tv3.set(GENERATOR.x, 0.6, GENERATOR.z), tv3) < 0.65 * 0.65) { h.propCd = 0.35; noise(tip, 16); GENERATOR.hp--; sparks(tip); sfx.clank(tip); pulse(h, 1, 100); if (GENERATOR.hp <= 0) killPower(); }
 }
 function hitPropsHand(h) {
-  if (!PHONE.cut && h.pos.distanceTo(jpos()) < 0.3) { h.punchCd = 0.4; JUNCTION.hp--; sfx.clank(h.pos); sparks(h.pos); pulse(h, 1, 90); if (JUNCTION.hp <= 0) cutPhone(); }
-  if (GENERATOR.on && h.pos.distanceTo(tv3.set(GENERATOR.x, 0.6, GENERATOR.z)) < 0.7) { h.punchCd = 0.4; GENERATOR.hp--; sfx.clank(h.pos); pulse(h, 1, 90); if (GENERATOR.hp <= 0) killPower(); }
+  if (!PHONE.cut && h.pos.distanceTo(jpos()) < 0.3) { h.punchCd = 0.4; noise(h.pos, 14); JUNCTION.hp--; sfx.clank(h.pos); sparks(h.pos); pulse(h, 1, 90); if (JUNCTION.hp <= 0) cutPhone(); }
+  if (GENERATOR.on && h.pos.distanceTo(tv3.set(GENERATOR.x, 0.6, GENERATOR.z)) < 0.7) { h.punchCd = 0.4; noise(h.pos, 16); GENERATOR.hp--; sfx.clank(h.pos); pulse(h, 1, 90); if (GENERATOR.hp <= 0) killPower(); }
 }
 function sparks(at) { for (let i = 0; i < 8; i++) blood.flame(at.x, at.y, at.z, 0.02, 0.15, false, rand(-1, 2)); }
 function carFront(out) { return out.set(CAR.x + Math.sin(CAR.yaw) * 1.9, 0.75, CAR.z + Math.cos(CAR.yaw) * 1.9); }
 let carSmoke = 0;
 function cutPhone() {
-  PHONE.cut = true; JUNCTION.wire.visible = false; JUNCTION.mesh.rotation.z = 0.4; JUNCTION.mesh.position.y -= 0.05;
+  PHONE.cut = true; JUNCTION.wire.visible = false; JUNCTION.mesh.rotation.z = 0.4; JUNCTION.mesh.position.y -= 0.05; JUNCTION.led.material.color.setHex(0x200000);
   caption('The phone line is dead.', 3.5); sfx.zap(jpos());
   for (const d of counselors) if (d.ai?.state === 'calling') { say(d, 'help'); chooseFlight(d); }
 }
@@ -528,7 +563,7 @@ function spawnCounselor(spot) {
   d.name = name;
   d.ai = { state: 'idle', aware: 0, seen: false, seeT: Math.random() * 0.2, spot, wanderT: rand(15, 50), route: null, routeT: 0, stamina: rand(10, 16), winded: 0, screamT: 0, plan: null, callT: 0, hideT: 0, tripCd: 3, sawBody: new Set() };
   d.face = spot.face ?? d.yaw;
-  if (Math.random() < 0.45) { d.flash = buildFlashlight(); scene.add(d.flash); scene.add(d.flash.userData.pool); }
+  d.flash = buildFlashlight(); scene.add(d.flash); scene.add(d.flash.userData.pool);
   d.onDeath = () => onKilled(d);
   d.onSever = () => { if (d.alive) say(d, 'dismember'); };
   d.onIgnite = () => { say(d, 'burning'); d.cause = 'burn'; };
@@ -547,18 +582,23 @@ function say(d, ev) {
 function updateFlashlight(d) {
   const f = d.flash; if (!f) return;
   const hand = d.p.rFin;
+  if (d.alive && d.ai?.state === 'asleep') { f.visible = false; f.userData.pool.visible = false; return; }   // switched off by the bed
+  if (d.alive) f.visible = true;
   if (d.alive && !d.loose?.has('rFin')) {
     f.position.set(hand.x, hand.y, hand.z);
     const sweep = d.ai?.state === 'flee' ? Math.sin(d.time * 7) * 0.5 : Math.sin(d.time * 0.7) * 0.25;
-    const yaw = d.yaw + sweep, pitch = d.ai?.state === 'investigate' ? -0.12 : -0.28;
+    const yaw = d.yaw + (d.headTurn ?? 0) * 0.8 + sweep, pitch = d.ai?.state === 'investigate' ? -0.12 : -0.22;
     tv.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     f.quaternion.setFromUnitVectors(NEG_Z, tv); f.userData.dir = tv.clone();
   } else if (!f.userData.dropped) {
+    // dropped where they fell; it goes out
     f.userData.dropped = true;
     f.position.set(hand.x, groundAt(hand.x, hand.z) + 0.03, hand.z);
     const yaw = Math.random() * 6.28; tv.set(Math.sin(yaw), -0.02, Math.cos(yaw));
     f.quaternion.setFromUnitVectors(NEG_Z, tv); f.userData.dir = tv.clone();
+    f.userData.beam.visible = false; f.userData.pool.visible = false; f.userData.lens.material = WM.black;
   }
+  if (f.userData.dropped) return;
   const dir = f.userData.dir, pool = f.userData.pool;
   if (dir.y < -0.05) { const t = Math.min(12, (f.position.y - groundAt(f.position.x, f.position.z)) / -dir.y); pool.position.copy(f.position).addScaledVector(dir, t); pool.position.y = groundAt(pool.position.x, pool.position.z) + 0.02; pool.scale.setScalar(0.4 + t * 0.17); pool.visible = true; }
   else pool.visible = false;
@@ -566,17 +606,18 @@ function updateFlashlight(d) {
 // ---- the brain
 function setState(d, st, at = null) {
   const a = d.ai; if (!a || !d.alive) return;
+  if (a.bed && st !== 'asleep' && st !== 'toBed') { if (a.state === 'asleep') { d.root.x = a.bed.side.x; d.root.z = a.bed.side.z; d.blend = 0; say(d, 'gasp'); } a.bed.taken = null; a.bed = null; if (d.flash) d.flash.visible = true; }
   a.state = st; a.route = null; a.routeT = 0; d.goal = null; a.target = at;
   d.wantSpeed = st === 'idle' ? 0 : st === 'wander' ? 1.1 : st === 'investigate' ? 1.3 : 3.6;
   d.scared = !['idle', 'wander', 'investigate'].includes(st);
   if (d.scared) d.unaware = false;
-  d.pose = st === 'hide' ? 'hide' : st === 'calling' ? 'phone' : st === 'starting' ? 'fumble' : 'idle';
+  d.pose = st === 'hide' ? 'hide' : st === 'calling' ? 'phone' : st === 'asleep' ? 'sleep' : 'idle';
 }
 function alertOf(d, amount) {
   const a = d.ai; if (!a || !d.alive) return;
   a.aware = Math.min(1, a.aware + amount);
   if (a.aware >= 1 && !a.seen) {
-    a.seen = true; d.unaware = false;
+    a.seen = true; d.unaware = false; RUN.lastAlarm = RUN.t;
     if (a.screamT <= 0) { say(d, 'scream'); a.screamT = 6; screamHeard(d); score.stinger(); }
     chooseFlight(d);
   }
@@ -597,15 +638,13 @@ function chooseFlight(d) {
   const away = (x, z) => Math.hypot(x - J.x, z - J.z) - Math.hypot(x - me.x, z - me.z) * 0.6;
   const opts = [];
   if (!PHONE.cut && RUN.calledAt < 0 && !counselors.some(o => o !== d && o.ai?.state === 'toPhone')) opts.push({ st: 'toPhone', x: PHONE.stand.x, z: PHONE.stand.z, w: 1.3 });
-  if (!RUN.carGone && RUN.carHp > 0 && !counselors.some(o => o !== d && o.ai?.state === 'toCar')) opts.push({ st: 'toCar', x: CAR.door.x, z: CAR.door.z, w: 1.0 });
-  if (RUN.carGone || RUN.carHp <= 0) opts.push({ st: 'escape', x: ROAD_END.x, z: ROAD_END.z - 2, w: 0.5 });
   for (const hd of HIDES) opts.push({ st: 'hide', x: hd.x, z: hd.z, hide: hd, w: 0.55 });
   let best = null, bs = -1e9;
   for (const o of opts) {
     const sc = away(o.x, o.z) * o.w + rand(0, 6) - (o.hide && counselors.some(c => c !== d && c.ai?.hideAt === o.hide) ? 8 : 0);
     if (sc > bs) { bs = sc; best = o; }
   }
-  if (!best || bs < -6) { const ang = Math.atan2(me.x - J.x, me.z - J.z) + rand(-0.6, 0.6); best = { st: 'flee', x: me.x + Math.sin(ang) * 20, z: me.z + Math.cos(ang) * 20 }; }
+  if (!best || bs < -6) { const ang = Math.atan2(me.x - J.x, me.z - J.z) + rand(-0.6, 0.6); best = { st: 'flee', x: Math.max(-FENCE + 3, Math.min(FENCE - 3, me.x + Math.sin(ang) * 20)), z: Math.max(shoreZ(me.x) + 3, Math.min(FENCE - 3, me.z + Math.cos(ang) * 20)) }; }
   a.hideAt = best.hide ?? null;
   setState(d, best.st === 'hide' ? 'flee' : best.st, { x: best.x, z: best.z });
   a.plan = best.st;
@@ -620,25 +659,34 @@ function goTo(d, x, z, dt) {
   return false;
 }
 const crouched = () => headPos().y - P.y < 1.3;
+// In the dark they only see what their flashlight is on: you have to be in the
+// beam (or close enough to touch).
 function canSee(d, J) {
   const eye = d.p.head, dx = J.x - eye.x, dz = J.z - eye.z, dist = Math.hypot(dx, dz);
-  let range = GENERATOR.on ? 13 : 9;
-  if (Math.hypot(J.x - CAMPFIRE.x, J.z - CAMPFIRE.z) < 8) range = 24;
-  if (crouched()) range *= 0.6;
-  if (d.scared) range *= 1.3;
-  if (d.flash && d.alive && d.flash.userData.dir) { tv.set(dx, J.y - d.flash.position.y, dz).normalize(); if (tv.dot(d.flash.userData.dir) > 0.94 && dist < 22) range = 22; }
-  if (dist > range) return 0;
-  const cos = (Math.sin(d.yaw) * dx + Math.cos(d.yaw) * dz) / (dist || 1);
-  if (cos < (d.scared ? -0.1 : 0.35) && dist > 1.6) return 0;
+  const f = d.flash;
+  let range = 0;
+  if (f && !f.userData.dropped && f.userData.dir) {
+    // anywhere on you inside the cone: head, chest or legs
+    for (const y of [J.y, J.y - 0.6, J.y - 1.2]) {
+      tv.set(J.x - f.position.x, y - f.position.y, J.z - f.position.z);
+      const len = tv.length(); if (len > 20) continue;
+      if (tv.dot(f.userData.dir) / len > 0.955) { range = 20; break; }
+    }
+  }
+  if (!range && dist < 1.6) {   // right in front of them
+    const cos = (Math.sin(d.yaw) * dx + Math.cos(d.yaw) * dz) / (dist || 1);
+    if (cos > 0.2) range = 1.6;
+  }
+  if (!range || dist > range) return 0;
   if (!sightClear(eye.x, eye.z, J.x, J.z)) return 0;
-  return 1 - dist / range;
+  return 1 - dist / (range + 2);
 }
 function updateCounselors(dt) {
   const J = headPos(), jSpeed = P.moveSpeed;
   for (const d of counselors) {
     const a = d.ai;
-    if (!d.alive || !a) continue;
     updateFlashlight(d);
+    if (!d.alive || !a) continue;
     a.screamT -= dt;
     if (d.held) { d.scared = true; d.unaware = false; if (Math.random() < dt * 0.6) say(d, pick(['plead', 'shriek', 'sob'])); continue; }
     // knocked down: if they can't get up, they crawl away from him
@@ -647,9 +695,10 @@ function updateCounselors(dt) {
     d.look = a.seen ? { x: J.x, z: J.z } : a.target ?? null;
     if ((a.seeT -= dt) <= 0) {
       a.seeT = 0.15;
-      const v = canSee(d, J);
+      const v = a.state === 'asleep' ? 0 : canSee(d, J);
       if (v > 0) alertOf(d, (v * 2.6 + 0.4) * 0.15 * (dist < 3 ? 6 : 1));
-      if (!a.seen && ((jSpeed > 3 && dist < 14) || (jSpeed > 0.8 && dist < 4))) { a.aware = Math.min(0.9, a.aware + 0.08); if (a.state === 'idle' || a.state === 'wander') setState(d, 'investigate', { x: J.x, z: J.z }); }
+      if (a.state === 'asleep') { /* only noise() wakes them */ }
+      else if (!a.seen && ((jSpeed > 3 && dist < (RUN.rain ? 7 : 14)) || (jSpeed > 0.8 && dist < (RUN.rain ? 2 : 4)))) { a.aware = Math.min(0.9, a.aware + 0.08); if (a.state === 'idle' || a.state === 'wander') setState(d, 'investigate', { x: J.x, z: J.z }); }
       for (const o of counselors) {
         if (o.alive || o === d || a.sawBody.has(o)) continue;
         const op = o.p.chest, od = Math.hypot(op.x - me.x, op.z - me.z);
@@ -657,6 +706,11 @@ function updateCounselors(dt) {
       }
     }
     a.aware = Math.max(0, a.aware - dt * (a.seen ? 0.01 : 0.05));
+    // a long quiet spell and they lose their nerve for searching: off to bed
+    if (RUN.t - RUN.lastAlarm > 70 && RUN.t > 60 && !a.bed && (['idle', 'wander', 'investigate'].includes(a.state) || (a.state === 'hide' && a.hideT > 40))) {
+      const bed = BEDS.filter(b => !b.taken).sort((p, q) => Math.hypot(p.x - me.x, p.z - me.z) - Math.hypot(q.x - me.x, q.z - me.z))[0];
+      if (bed && Math.random() < dt * 0.3) { bed.taken = d; setState(d, 'toBed'); a.bed = bed; a.seen = false; d.wantSpeed = 1.1; d.scared = false; }
+    }
     d.unaware = !a.seen && a.aware < 0.5;
     const running = d.wantSpeed > 2;
     if (running) { a.stamina -= dt; if (a.stamina <= 0) { a.winded = rand(3, 5); a.stamina = rand(8, 14); say(d, 'gasp'); } }
@@ -671,6 +725,14 @@ function updateCounselors(dt) {
         break;
       }
       case 'wander': if (goTo(d, a.spot.x, a.spot.z, dt)) setState(d, 'idle'); break;
+      case 'toBed':
+        d.wantSpeed = 1.1; d.scared = false;
+        if (goTo(d, a.bed.side.x, a.bed.side.z, dt)) { a.state = 'asleep'; d.pose = 'sleep'; d.goal = null; d.speed = 0; d.root.x = a.bed.x; d.root.z = a.bed.z; d.yaw = a.bed.yaw; d.face = a.bed.yaw; d.blend = 0; d.unaware = true; if (d.flash) d.flash.visible = false; }
+        break;
+      case 'asleep':
+        d.goal = null; d.unaware = true; d.root.x = a.bed.x; d.root.z = a.bed.z; d.yaw = a.bed.yaw;
+        if (Math.random() < dt * 0.05) sfx.breath(d.p.head, d.female);
+        break;
       case 'investigate': {
         const t = a.target;
         if (!t || goTo(d, t.x, t.z, dt)) { a.lookT = (a.lookT ?? 4) - dt; d.face = d.yaw + Math.sin(d.time) * 0.8; if (a.lookT <= 0) { a.lookT = 4; a.aware *= 0.5; setState(d, 'wander'); } }
@@ -739,6 +801,22 @@ function removeVictim(d) {
 }
 function pushRoot(r) { const [x, z] = collide(r.x, r.z, 0.25); r.x = x; r.z = z; }
 
+
+// Noise: anyone in earshot hears it. Sleepers wake (light sleepers nearer the
+// source), people up and about come to look. Rain covers a lot of it.
+function noise(at, radius) {
+  if (RUN.rain) radius *= 0.6;
+  for (const d of counselors) {
+    if (!d.alive || !d.ai || d.held) continue;
+    const me = posOf(d), dist = Math.hypot(me.x - at.x, me.z - at.z);
+    const a = d.ai;
+    if (a.state === 'asleep') { if (dist < radius * 0.7) { setState(d, 'investigate', { x: at.x, z: at.z }); a.aware = 0.5; } continue; }
+    if (dist > radius || a.seen) continue;
+    a.aware = Math.min(0.9, a.aware + 0.3);
+    if (['idle', 'wander', 'toBed'].includes(a.state)) setState(d, 'investigate', { x: at.x + rand(-1.5, 1.5), z: at.z + rand(-1.5, 1.5) });
+  }
+}
+
 // ------------------------------------------------------------ how they died
 function killName(d) {
   if (d.cause === 'drown') return 'drowned';
@@ -767,8 +845,6 @@ function onKilled(d) {
   if (d.police) { caption('One less cop.', 2.5); return; }
   pending.push({ d, t: 0.6 });
   sting(); score.stinger(true);
-  const at = d.p.pelvis;
-  for (const o of counselors) if (o !== d && o.alive && o.ai && Math.hypot(posOf(o).x - at.x, posOf(o).z - at.z) < 22) { o.ai.aware = Math.max(o.ai.aware, 0.6); if (!o.ai.seen && o.ai.state !== 'investigate') setState(o, 'investigate', { x: at.x, z: at.z }); }
 }
 function updatePending(dt) {
   for (let i = pending.length - 1; i >= 0; i--) {
@@ -790,9 +866,10 @@ function policeArrive() {
   sfx.siren(true); setTimeout(() => sfx.siren(false), 9000);
   caption('Police. They\'re armed.', 4);
   if (!copCar) buildCopCar();
-  copCar.visible = true; copCar.position.set(ROAD_END.x, 0, 75); copCarT = 0;
+  copCar.visible = true; copCar.position.set(GATE.x - 2, 0, 75); copCarT = 0;
+  setTimeout(() => { if (RUN.over) return; GATE.open = true; GATE.box.min.y = -10; GATE.box.max.y = -9; for (const m of GATE.lock) m.visible = false; sfx.clank(tv3.set(GATE.x, 1.2, FENCE)); caption('They\'ve cut the lock on the gate.', 3); }, 4000);
   const n = Math.min(4, 1 + RUN.night);
-  for (let i = 0; i < n; i++) setTimeout(() => spawnCop(ROAD_END.x + (i % 2 ? 1.6 : -1.6), ROAD_END.z - 4 - i * 1.5), 4500 + i * 600);
+  for (let i = 0; i < n; i++) setTimeout(() => spawnCop(GATE.x + (i % 2 ? 1.2 : -1.2), FENCE + 2.5 + i * 1.2), 5000 + i * 700);
 }
 function buildCopCar() {
   copCar = new THREE.Group(); scene.add(copCar);
@@ -919,13 +996,13 @@ function drawWrist() {
   const left = Math.max(0, RUN.dawn - RUN.t), mm = Math.floor(left / 60), ss = Math.floor(left % 60);
   const pol = RUN.policeHere ? 'HERE' : RUN.policeAt > 0 ? `coming · ${Math.max(0, Math.ceil(RUN.policeAt - RUN.t))}s` : '—';
   const lines = [[`NIGHT ${RUN.night}`, `${mm}:${String(ss).padStart(2, '0')} till dawn`], [`${alive} alive`, `${RUN.kills.length} dead · ${RUN.escaped.length} gone`],
-    ['phone line', PHONE.cut ? 'cut' : 'live'], ['their car', RUN.carGone ? 'gone' : RUN.carHp <= 0 ? 'wrecked' : 'runs'], ['power', GENERATOR.on ? 'on' : 'off'], ['police', pol]];
+    ['phone line', PHONE.cut ? 'cut' : 'live'], ['power', GENERATOR.on ? 'on' : 'off'], ['police', pol], ['the gate', GATE.open ? 'open' : 'locked']];
   const key = JSON.stringify(lines) + Math.round(P.hp);
   if (key === wristKey) return; wristKey = key;
   const g = wristCanvas.getContext('2d'); g.clearRect(0, 0, 512, 320);
   g.fillStyle = 'rgba(20,16,12,0.82)'; g.fillRect(0, 0, 512, 320); g.strokeStyle = 'rgba(120,100,80,0.5)'; g.lineWidth = 3; g.strokeRect(4, 4, 504, 312);
   g.font = '30px "Special Elite", "Courier New", monospace'; g.textBaseline = 'middle';
-  const warn = b => b === 'live' || b === 'runs' || b === 'on' || b === 'HERE' || b.startsWith('coming');
+  const warn = b => b === 'live' || b === 'on' || b === 'open' || b === 'HERE' || b.startsWith('coming');
   lines.forEach(([a, b], i) => { g.fillStyle = i ? '#a89c88' : '#d0c6b4'; g.textAlign = 'left'; g.fillText(a, 22, 34 + i * 46); g.textAlign = 'right'; g.fillStyle = warn(b) ? '#b8432e' : '#a89c88'; g.fillText(b, 490, 34 + i * 46); });
   if (P.hp < 100) { g.fillStyle = '#3a0a06'; g.fillRect(22, 302, 468, 8); g.fillStyle = '#9a1a10'; g.fillRect(22, 302, 468 * P.hp / 100, 8); }
   wristTex.needsUpdate = true;
@@ -1012,7 +1089,8 @@ function helpMenu() {
     'Two hands, pull hard: tear off an arm, a leg, the head.',
     'Punch hard into a weak chest: tear out the heart.',
     'Hold them under in the lake. Push them into the fire.',
-    'Wreck the phone box on the lodge, their car, the generator.',
+    'The only phone line runs into the box on the entrance sign. Cut it.',
+    'The fence is locked. Only the police can open the gate.',
   ], [{ label: 'Back', act: () => pauseMenu() }]);
 }
 
@@ -1027,8 +1105,10 @@ function clearNight() {
 }
 function startNight(n) {
   clearNight();
-  Object.assign(RUN, { night: n, t: 0, dawn: 420 + n * 30, over: false, calledAt: -1, policeAt: -1, policeHere: false, carGone: false, carHp: 3, carDriving: null, kills: [], escaped: [] });
-  PHONE.cut = false; JUNCTION.hp = 2; JUNCTION.wire.visible = true; JUNCTION.mesh.rotation.z = 0; JUNCTION.mesh.position.y = JUNCTION.y;
+  for (const b of BEDS) b.taken = null;
+  Object.assign(RUN, { lastAlarm: 0, night: n, t: 0, dawn: 420 + n * 30, over: false, calledAt: -1, policeAt: -1, policeHere: false, carGone: false, carHp: 3, carDriving: null, kills: [], escaped: [] });
+  PHONE.cut = false; JUNCTION.hp = 2; JUNCTION.wire.visible = true; JUNCTION.mesh.rotation.z = 0; JUNCTION.mesh.position.y = JUNCTION.y; JUNCTION.led.material.color.setHex(0xff2a10);
+  GATE.open = false; GATE.openT = 0; GATE.box.min.y = 0; GATE.box.max.y = 2.6; for (const p of GATE.panels) p.hinge.rotation.y = 0; for (const m of GATE.lock) m.visible = true;
   GENERATOR.on = true; GENERATOR.hp = 3; WINDOW_MAT.color.setHex(0xffb860);
   CAR.mesh.position.set(CAR.x, 0, CAR.z); CAR.mesh.rotation.y = CAR.yaw; CAR.lampMat.color.setHex(0x222018); carSmoke = 0;
   for (const b of CAR.boxes) if (b.min.y < -1) { b.min.y = 0; b.max.y = 1.4; }
@@ -1048,11 +1128,13 @@ function startNight(n) {
   }
   nameBag = [];
   for (const s of chosen) spawnCounselor(s);
+  RUN.rain = n === 2 || (n > 2 && Math.random() < 0.45);
+  setWeather(RUN.rain);
   rig.position.set(START.x, groundAt(START.x, START.z) + S.height, START.z);
   rig.rotation.y = inVR ? Math.PI : 0; deskYaw = Math.PI; deskPitch = 0;
   teleported = true;
   sting();
-  caption(`Night ${['one', 'two', 'three', 'four', 'five', 'six', 'seven'][n - 1] ?? n}`, 5, `${chosen.length} counselors at Camp Crystal Lake`);
+  caption(`Night ${['one', 'two', 'three', 'four', 'five', 'six', 'seven'][n - 1] ?? n}`, 5, `${chosen.length} counselors at Camp Crystal Lake${RUN.rain ? ' · rain' : ''}`);
 }
 function checkNightOver() {
   if (RUN.over || counselors.some(c => c.alive) || pending.length) return;
@@ -1085,9 +1167,11 @@ function updateNight(dt) {
     const sp = Math.min(9, c.t * 3); m.position.x += Math.sin(m.rotation.y) * sp * dt; m.position.z += Math.cos(m.rotation.y) * sp * dt;
     if (m.position.z > 140) RUN.carDriving = null;
   }
+  // the gate swinging open
+  if (GATE.open) { GATE.openT = Math.min(1, (GATE.openT ?? 0) + dt * 0.5); for (const p of GATE.panels) p.hinge.rotation.y = p.side * GATE.openT * 1.7; }
   if (copCar?.visible) {
     copCarT += dt;
-    if (copCar.position.z > ROAD_END.z + 3) copCar.position.z -= Math.max(0, 9 - copCarT * 1.5) * dt + 0.02;
+    if (copCar.position.z > FENCE + 6) copCar.position.z -= Math.max(0, 9 - copCarT * 1.5) * dt + 0.02;
     const blink = Math.floor(RUN.t * 4) % 2;
     copLights[0].material.color.setHex(blink ? 0xff1a1a : 0x300000); copLights[1].material.color.setHex(blink ? 0x10102a : 0x1a4aff);
   }
@@ -1159,7 +1243,7 @@ function moveJason(dx, dz, dt) {
   const fy = groundAt(nx, nz) + S.height;
   P.y = fy; rig.position.y += (fy - rig.position.y) * Math.min(1, dt * 8);
   P.stepAcc = (P.stepAcc ?? 0) + moved * dt;
-  if (P.stepAcc > (run ? 1.0 : 0.85)) { P.stepAcc = 0; const f = tv.set(nx, fy - S.height, nz); wading ? sfx.splash(f) : sfx.step(f, 0.14); }
+  if (P.stepAcc > (run ? 1.0 : 0.85)) { P.stepAcc = 0; const f = tv.set(nx, fy - S.height, nz); wading ? sfx.splash(f) : sfx.step(f, 0.14); noise(f, wading ? (run ? 9 : 4) : run ? 8 : 1.6); }
 }
 function desktopMove(dt) {
   let f = 0, s = 0;
@@ -1201,7 +1285,7 @@ function vrMove(dt) {
 // Jason's sense: for a moment you can feel where their fear is
 const senseMarks = [];
 const senseMat = new THREE.SpriteMaterial({ color: 0x8a0a06, transparent: true, depthTest: false, fog: false, opacity: 0, map: (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.4, 'rgba(255,255,255,0.4)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })() });
-function useSense() { if (P.senseCd > 0) return; P.sense = 5; P.senseCd = 25; sfx.heartbeat(); }
+function useSense() { if (P.senseCd > 0) return; P.sense = 5; P.senseCd = 20; sfx.heartbeat(); }
 function updateSense(dt) {
   P.senseCd = Math.max(0, P.senseCd - dt); P.sense = Math.max(0, P.sense - dt);
   const live = counselors.filter(c => c.alive);
@@ -1338,6 +1422,9 @@ function frame(time) {
     updateNight(dt);
     updateLamps();
     updateSense(dt);
+    updateGlints(RUN.t);
+    const bolt = rain.update(dt, head.x, head.y, head.z);
+    hemiL.intensity = (RUN.rain ? SKY.wet.hemi : SKY.clear.hemi) + bolt * 6;
     blood.update(dt, camera);
     for (const d of victims()) if (d.bleed > 1 && Math.random() < dt * Math.min(20, d.bleed * 2)) { const p = pick([d.p.chest, d.p.pelvis, d.p.neck]); blood.drop(p.x, p.y, p.z, rand(-0.2, 0.2), -0.5, rand(-0.2, 0.2), 0.008); }
   }

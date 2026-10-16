@@ -159,6 +159,6 @@ export function buildFlashlight() {
   // a pool of light where it lands
   const pool = new THREE.Mesh(new THREE.CircleGeometry(1, 20), new THREE.MeshBasicMaterial({ color: 0x3a362a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, map: (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(1, '#000'); x.fillStyle = gr; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })() }));
   pool.rotation.x = -Math.PI / 2;
-  g.userData = { beam, pool };
+  g.userData = { beam, pool, lens };
   return g;
 }

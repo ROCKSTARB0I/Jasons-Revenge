@@ -34,11 +34,17 @@ export const LODGE = { x: 0, z: 27, w: 14, d: 9, yaw: Math.PI };   // door faces
 export const SPOTS = [];      // places counselors hang about: {x, z, kind}
 export const HIDES = [];      // places they run to and hide: inside cabins and the lodge
 export const WEAPON_SPOTS = {};
+export const BEDS = [];       // lower bunks: { x, z, yaw (head end), side: where to stand to get in }
 // things you can wreck so nobody gets help: the phone line, their car, the power
 export const PHONE = { x: -6.9, y: 1.45, z: 25.5, stand: { x: -6.15, z: 25.5 }, cut: false, mesh: null };
-export const JUNCTION = { x: 7.12, y: 1.5, z: 29.5, hp: 2, mesh: null };
+// the camp's only phone line comes in on the entrance sign; the junction box is on its left post
+export const SIGN = { x: 8.2, z: 52, half: 3.2 };
+export const JUNCTION = { x: SIGN.x - SIGN.half, y: 1.45, z: SIGN.z - 0.2, hp: 2, mesh: null };
 export const GENERATOR = { x: 9.2, z: 31.5, hp: 3, on: true, mesh: null };
 export let WINDOW_MAT = null;
+// a chain-link fence all the way round; the only way through is the padlocked gate on the road
+export const FENCE = 55;
+export const GATE = { x: 7.9, z: FENCE, w: 4.4, open: false, panels: [], box: null };
 
 function canvasTex(w, h, draw, repeat) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -97,17 +103,27 @@ function roofTex() {
     for (let i = 0; i < 40; i++) { g.fillStyle = 'rgba(40,60,30,0.35)'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 6 + Math.random() * 14, 0, 7); g.fill(); }   // moss
   }, [2, 2]);
 }
+// The entrance sign: a heavy plank board, stained dark, the name routed into it
+// and painted cream, weathered by years of lake winters.
 function signTex() {
-  return canvasTex(1024, 256, (g, w, h) => {
-    g.fillStyle = '#4a3220'; g.fillRect(0, 0, w, h);
-    for (let y = 0; y < h; y += 4) { g.fillStyle = `rgba(0,0,0,${Math.random() * 0.2})`; g.fillRect(0, y, w, 2); }
-    g.fillStyle = '#e9dcc0'; g.font = 'bold 118px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('CAMP CRYSTAL LAKE', w / 2, h / 2 + 6);
-    g.globalCompositeOperation = 'destination-out';   // weathered paint
-    for (let i = 0; i < 600; i++) { g.fillStyle = `rgba(0,0,0,${Math.random() * 0.7})`; g.fillRect(Math.random() * w, Math.random() * h, 2 + Math.random() * 6, 1 + Math.random() * 3); }
-    g.globalCompositeOperation = 'source-over';
-    g.fillStyle = 'rgba(110,8,8,0.85)';   // someone's added to it
-    for (let i = 0; i < 6; i++) { const x = 200 + i * 130 + Math.random() * 30; g.fillRect(x, 150, 5, 40 + Math.random() * 70); }
+  return canvasTex(1024, 300, (g, w, h) => {
+    g.fillStyle = '#3e2a1a'; g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y++) { const v = Math.sin(y * 0.21) * 6 + Math.random() * 10; g.fillStyle = `rgba(${70 + v | 0},${48 + v * 0.8 | 0},${30 + v * 0.5 | 0},0.35)`; g.fillRect(0, y, w, 1); }
+    for (const y of [100, 200]) { g.fillStyle = 'rgba(10,6,3,0.9)'; g.fillRect(0, y - 2, w, 4); }   // three planks
+    for (let i = 0; i < 30; i++) { g.fillStyle = 'rgba(20,12,6,0.5)'; g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, 4 + Math.random() * 8, 2 + Math.random() * 3, 0, 0, 7); g.fill(); }   // knots
+    g.strokeStyle = '#d9c9a4'; g.lineWidth = 6; g.strokeRect(18, 18, w - 36, h - 36);   // painted border
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const carve = (text, font, y, fill) => {
+      g.font = font;
+      g.fillStyle = 'rgba(0,0,0,0.75)'; g.fillText(text, w / 2 + 3, y + 4);   // the routed groove's shadow
+      g.fillStyle = fill; g.fillText(text, w / 2, y);
+    };
+    carve('CAMP', 'bold 64px Georgia, "Times New Roman", serif', 74, '#e6d8b8');
+    carve('CRYSTAL LAKE', 'bold 120px Georgia, "Times New Roman", serif', 166, '#ece0c2');
+    carve('EST. 1935', 'italic 34px Georgia, serif', 246, '#cdbd98');
+    // weathering: paint flaked off, grime in the grain, moss creeping up from the bottom
+    for (let i = 0; i < 1400; i++) { g.fillStyle = `rgba(62,42,26,${Math.random() * 0.8})`; g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 5, 1 + Math.random() * 2); }
+    for (let i = 0; i < 40; i++) { const gr = g.createRadialGradient(0, 0, 0, 0, 0, 30); const x = Math.random() * w, y = h - Math.random() * 40; g.save(); g.translate(x, y); gr.addColorStop(0, 'rgba(50,70,30,0.45)'); gr.addColorStop(1, 'rgba(50,70,30,0)'); g.fillStyle = gr; g.fillRect(-30, -30, 60, 60); g.restore(); }
   });
 }
 
@@ -298,6 +314,10 @@ export function buildCamp(scene, world) {
     wallSeg(-W / 2, D / 2, -door / 2 - 0.2, D / 2); wallSeg(door / 2 + 0.2, D / 2, W / 2, D / 2);
     const local = (x, z) => new THREE.Vector3(x, 0, z).applyMatrix4(g.matrixWorld);
     const inside = local(0, -0.2), corner = local(W / 2 - 0.7, -D / 2 + 0.6), front = local(0, D / 2 + 1.6);
+    for (const sx of [-1, 1]) {
+      const c = local(sx * (W / 2 - 0.6), -0.6), side = local(sx * (W / 2 - 1.35), -0.6), head = local(sx * (W / 2 - 0.6), -1.5);
+      BEDS.push({ x: c.x, z: c.z, yaw: Math.atan2(head.x - c.x, head.z - c.z), side: { x: side.x, z: side.z }, taken: null });
+    }
     HIDES.push({ x: corner.x, z: corner.z, door: { x: front.x, z: front.z }, cabin: C });
     HIDES.push({ x: local(-W / 2 + 0.7, 0.9).x, z: local(-W / 2 + 0.7, 0.9).z, door: { x: front.x, z: front.z }, cabin: C });
     SPOTS.push({ x: inside.x, z: inside.z, kind: 'cabin' }, { x: front.x, z: front.z, kind: 'porch' });
@@ -388,11 +408,55 @@ export function buildCamp(scene, world) {
     for (let i = -2; i <= 2; i++) { const x = CAR.x + s * i * 0.9, z = CAR.z + c * i * 0.9; CAR.boxes = CAR.boxes ?? []; CAR.boxes.push(addSolid(x - 0.9, 0, z - 0.9, x + 0.9, 1.4, z + 0.9)); }
     const door = new THREE.Vector3(-1.4, 0, -0.2).applyMatrix4(g.matrixWorld); CAR.door = { x: door.x, z: door.z };
   }
+  // ---- the entrance: two log posts either side of the road, a crossbeam, the sign hanging from it on chains,
+  // floodlights on the ground washing it from below, and the phone line coming in on the left post
   {
-    const g = new THREE.Group(); g.position.set(-4, 0, 52); g.rotation.y = Math.PI; statics.add(g);
-    for (const x of [-2.2, 2.2]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 3.2, 8), M.log); p.position.set(x, 1.6, 0); g.add(p); }
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 1.1), new THREE.MeshLambertMaterial({ map: signTex(), side: THREE.DoubleSide })); sign.position.set(0, 2.5, 0.16); g.add(sign);
-    addSolid(-6.4, 0, 51.8, -6, 3.2, 52.2); addSolid(-2, 0, 51.8, -1.6, 3.2, 52.2);
+    const S = SIGN, g = new THREE.Group(); g.position.set(S.x, 0, S.z); scene.add(g);
+    for (const sx of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 5.2, 10), M.log); post.position.set(sx * S.half, 2.6, 0); g.add(post);
+      addSolid(S.x + sx * S.half - 0.25, 0, S.z - 0.25, S.x + sx * S.half + 0.25, 5.2, S.z + 0.25);
+    }
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, S.half * 2 + 0.8, 10), M.log); beam.rotation.z = Math.PI / 2; beam.position.y = 4.95; g.add(beam);
+    const signMat = new THREE.MeshLambertMaterial({ map: signTex() });
+    const board = new THREE.Mesh(new THREE.BoxGeometry(4.8, 1.4, 0.1), [M.woodDark, M.woodDark, M.woodDark, M.woodDark, signMat, signMat]);
+    board.position.set(0, 3.75, 0); g.add(board);
+    for (const sx of [-1.9, 1.9]) for (let i = 0; i < 4; i++) { const link = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.012, 4, 8), M.metal); link.position.set(sx, 4.6 - i * 0.1, 0); link.rotation.y = i % 2 ? Math.PI / 2 : 0; g.add(link); }
+    // floodlights, set in the grass on the camp side, pointing up at the sign
+    const housing = new THREE.MeshLambertMaterial({ color: 0x1a1c1e }), glow = new THREE.MeshBasicMaterial({ color: 0xfff0d0 });
+    const beamTex = canvasTex(4, 64, (x, w, h) => { const gr = x.createLinearGradient(0, h, 0, 0); gr.addColorStop(0, 'rgba(255,240,210,0.5)'); gr.addColorStop(1, 'rgba(255,240,210,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, h); });
+    for (const sx of [-1.4, 1.4]) {
+      const lamp = new THREE.Group(); lamp.position.set(sx, 0.2, -2.2); g.add(lamp);
+      lamp.lookAt(S.x + sx * 0.4, 3.75, S.z);
+      const can = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.12, 0.28, 12), housing); can.rotation.x = Math.PI / 2; lamp.add(can);
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.14, 12), glow); lens.position.z = 0.15; lamp.add(lens);
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.9, 4, 16, 1, true), new THREE.MeshBasicMaterial({ map: beamTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }));
+      cone.rotation.x = -Math.PI / 2; cone.position.z = 2.1; lamp.add(cone);
+      const stake = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.2, 0.04), housing); stake.position.y = -0.1; g.add(stake); stake.position.set(sx, 0.1, -2.2);
+    }
+    const flood = new THREE.SpotLight(0xffe8c8, 60, 12, 0.55, 0.5, 1.4); flood.position.set(S.x, 0.4, S.z - 2.4); flood.target.position.set(S.x, 3.5, S.z); scene.add(flood, flood.target);
+    // the junction box on the left post, with a caged work lamp over it so you can find it
+    const jb = new THREE.Group(); jb.position.set(JUNCTION.x, JUNCTION.y, JUNCTION.z); jb.rotation.y = Math.PI; scene.add(jb);
+    const grey = new THREE.MeshLambertMaterial({ color: 0x7a7e76 });
+    box(jb, grey, 0.34, 0.44, 0.14, 0, 0, 0.07); box(jb, M.metal, 0.36, 0.04, 0.16, 0, 0.23, 0.07);
+    const lbl = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.07), new THREE.MeshLambertMaterial({ map: canvasTex(128, 40, (x, w, h) => { x.fillStyle = '#c9b030'; x.fillRect(0, 0, w, h); x.fillStyle = '#1a1a1a'; x.font = 'bold 18px Arial'; x.textAlign = 'center'; x.fillText('BELL SYSTEM', w / 2, 26); }) }));
+    lbl.position.set(0, 0.12, 0.142); jb.add(lbl);
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2a10 })); led.position.set(0.12, -0.15, 0.145); jb.add(led);
+    const cage = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffe0a0 })); cage.position.set(0, 0.55, 0.12); jb.add(cage);
+    const shade = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.08, 10, 1, true), housing); shade.position.set(0, 0.6, 0.12); jb.add(shade);
+    const work = new THREE.PointLight(0xffd8a0, 4, 5, 1.6); work.position.set(JUNCTION.x, JUNCTION.y + 0.5, JUNCTION.z - 0.35); scene.add(work);
+    JUNCTION.mesh = jb; JUNCTION.led = led; JUNCTION.lamp = work; JUNCTION.bulb = cage;
+    // the line: up the post, off to a telephone pole by the road, away into the trees
+    const sag = (a, b, drop = 0.6) => { const m = a.clone().lerp(b, 0.5); m.y -= drop; return new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, m, b), 20, 0.012, 4), M.metal); };
+    const top = new THREE.Vector3(JUNCTION.x, 4.9, JUNCTION.z);
+    const up = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 4.9 - JUNCTION.y - 0.22, 4), M.metal); up.position.set(JUNCTION.x - 0.02, (4.9 + JUNCTION.y + 0.22) / 2, JUNCTION.z - 0.21); scene.add(up);
+    const poleAt = new THREE.Vector3(S.x - 9, 0, S.z + 7);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 7.5, 8), M.log); pole.position.set(poleAt.x, 3.75, poleAt.z); scene.add(pole);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 0.1), M.log); arm.position.set(poleAt.x, 7.2, poleAt.z); scene.add(arm);
+    addSolid(poleAt.x - 0.18, 0, poleAt.z - 0.18, poleAt.x + 0.18, 7.5, poleAt.z + 0.18);
+    JUNCTION.wire = new THREE.Group(); scene.add(JUNCTION.wire);
+    JUNCTION.wire.add(up, sag(top, new THREE.Vector3(poleAt.x, 7.2, poleAt.z), 0.8));
+    scene.add(sag(new THREE.Vector3(poleAt.x, 7.2, poleAt.z), new THREE.Vector3(poleAt.x - 22, 7.4, poleAt.z + 30), 1.4));
+    SIGN.board = board;
   }
 
   // ---- the woods: instanced pines, birches and stumps; trunks inside the camp are solid
@@ -406,6 +470,8 @@ export function buildCamp(scene, world) {
     if (Math.abs(x - LODGE.x) < 10 && Math.abs(z - LODGE.z) < 8) return false;
     for (const C of CABINS) if (Math.hypot(x - C.x, z - C.z) < 5) return false;
     if (Math.hypot(x - CAR.x, z - CAR.z) < 5) return false;
+    if (Math.abs(x - SIGN.x) < SIGN.half + 3 && Math.abs(z - SIGN.z) < 4) return false;
+    if (Math.hypot(x - (SIGN.x - 9), z - (SIGN.z + 7)) < 2.5) return false;
     if (Math.abs(x - (CAR.x + (ROAD_END.x - CAR.x) * Math.max(0, Math.min(1, (z - CAR.z) / (120 - CAR.z))))) < 3 && z > CAR.z - 6) return false;   // the road
     if (Math.hypot(x + 12, z - 14) < 3 || Math.hypot(x - 37, z - 26) < 7 || Math.hypot(x + 5, z - 8) < 1.5) return false;
     for (const t of trees) if ((t.x - x) ** 2 + (t.z - z) ** 2 < 4) return false;
@@ -473,17 +539,6 @@ export function buildCamp(scene, world) {
     const hs = box(ph, beige, 0.05, 0.22, 0.06, -0.06, 0.02, 0.1);
     const cord = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(-0.06, -0.08, 0.1), new THREE.Vector3(-0.03, -0.3, 0.12), new THREE.Vector3(0.02, -0.25, 0.1), new THREE.Vector3(0, -0.1, 0.08)]), 12, 0.006, 4), M.metal); ph.add(cord);
     PHONE.mesh = ph; PHONE.handset = hs;
-    const jb = new THREE.Group(); jb.position.set(JUNCTION.x, JUNCTION.y, JUNCTION.z); jb.rotation.y = Math.PI / 2; scene.add(jb);
-    const grey = new THREE.MeshLambertMaterial({ color: 0x6a6e66 });
-    box(jb, grey, 0.34, 0.44, 0.14, 0, 0, 0.07); box(jb, M.metal, 0.36, 0.04, 0.16, 0, 0.23, 0.07);
-    const lbl = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.06), new THREE.MeshLambertMaterial({ color: 0xc9b030 })); lbl.position.set(0, 0.12, 0.142); jb.add(lbl);
-    // the line itself, sagging away to a pole and off into the trees
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 7, 8), M.log); pole.position.set(15, 3.5, 34); scene.add(pole);
-    const sag = (a, b) => { const m = a.clone().lerp(b, 0.5); m.y -= 0.6; return new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, m, b), 16, 0.01, 4), M.metal); };
-    JUNCTION.wire = sag(new THREE.Vector3(JUNCTION.x + 0.1, JUNCTION.y + 0.2, JUNCTION.z), new THREE.Vector3(15, 6.6, 34)); scene.add(JUNCTION.wire);
-    scene.add(sag(new THREE.Vector3(15, 6.6, 34), new THREE.Vector3(40, 6.6, 62)));
-    addSolid(14.85, 0, 33.85, 15.15, 7, 34.15);
-    JUNCTION.mesh = jb;
     const gen = new THREE.Group(); gen.position.set(GENERATOR.x, 0, GENERATOR.z); scene.add(gen);
     const red = new THREE.MeshLambertMaterial({ color: 0x6a1a14 });
     box(gen, red, 1.0, 0.55, 0.65, 0, 0.42, 0); box(gen, M.metal, 1.1, 0.12, 0.7, 0, 0.1, 0);
@@ -494,6 +549,44 @@ export function buildCamp(scene, world) {
     WINDOW_MAT = M.window;
     // a bare bulb on the lodge porch, run off the generator
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), M.window); bulb.position.set(-2.2, 2.5, LODGE.z - LODGE.d / 2 - 2.2); scene.add(bulb);
+  }
+
+  // ---- the fence
+  {
+    const link = canvasTex(128, 128, (g, w, h) => {
+      g.clearRect(0, 0, w, h); g.strokeStyle = 'rgba(150,155,160,0.95)'; g.lineWidth = 3;
+      for (let i = -h; i < w + h; i += 32) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + h, h); g.stroke(); g.beginPath(); g.moveTo(i, h); g.lineTo(i + h, 0); g.stroke(); }
+    }, [1, 1]);
+    link.colorSpace = THREE.SRGBColorSpace;
+    const H = 2.6, mesh = new THREE.MeshLambertMaterial({ map: link, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
+    const run = (x0, z0, x1, z1) => {
+      const len = Math.hypot(x1 - x0, z1 - z0), t = link.clone(); t.needsUpdate = true; t.repeat.set(len / 0.7, H / 0.7);
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(len, H), mesh.clone()); m.material.map = t;
+      m.position.set((x0 + x1) / 2, H / 2, (z0 + z1) / 2); m.rotation.y = Math.atan2(-(z1 - z0), x1 - x0); scene.add(m);
+      const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, len, 6), M.metal); rail.rotation.z = Math.PI / 2; rail.rotation.y = m.rotation.y; rail.position.set(m.position.x, H, m.position.z); scene.add(rail);
+      for (let i = 0; i <= Math.floor(len / 3); i++) { const k = i * 3 / len; const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, H + 0.1, 6), M.metal); post.position.set(x0 + (x1 - x0) * k, (H + 0.1) / 2, z0 + (z1 - z0) * k); statics.add(post); }
+      // barbed wire along the top
+      const barb = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, len, 3), M.metal); barb.rotation.copy(rail.rotation); barb.position.set(m.position.x, H + 0.25, m.position.z); scene.add(barb);
+      addSolid(Math.min(x0, x1) - 0.12, 0, Math.min(z0, z1) - 0.12, Math.max(x0, x1) + 0.12, H, Math.max(z0, z1) + 0.12);
+    };
+    const shoreW = SHORE(-FENCE) - 1, shoreE = SHORE(FENCE) - 1;
+    run(-FENCE, shoreW, -FENCE, FENCE); run(FENCE, shoreE, FENCE, FENCE);
+    run(-FENCE, FENCE, GATE.x - GATE.w / 2, FENCE); run(GATE.x + GATE.w / 2, FENCE, FENCE, FENCE);
+    // the gate: two leaves, chained and padlocked in the middle
+    for (const side of [-1, 1]) {
+      const hinge = new THREE.Group(); hinge.position.set(GATE.x + side * GATE.w / 2, 0, FENCE); scene.add(hinge);
+      const leaf = new THREE.Mesh(new THREE.PlaneGeometry(GATE.w / 2, H), mesh.clone()); leaf.material.map = link.clone(); leaf.material.map.needsUpdate = true; leaf.material.map.repeat.set(GATE.w / 2 / 0.7, H / 0.7);
+      leaf.position.set(-side * GATE.w / 4, H / 2, 0); hinge.add(leaf);
+      for (const y of [0.05, H / 2, H]) { const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, GATE.w / 2, 6), M.metal); bar.rotation.z = Math.PI / 2; bar.position.set(-side * GATE.w / 4, y, 0); hinge.add(bar); }
+      const frame = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, H, 6), M.metal); frame.position.set(-side * GATE.w / 2, H / 2, 0); hinge.add(frame);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, H + 0.3, 8), M.metal); post.position.set(GATE.x + side * (GATE.w / 2 + 0.08), (H + 0.3) / 2, FENCE); scene.add(post);
+      GATE.panels.push({ hinge, side });
+    }
+    const lock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 0.03), new THREE.MeshLambertMaterial({ color: 0x8a7a40 })); lock.position.set(GATE.x, 1.2, FENCE - 0.05); scene.add(lock);
+    const chain = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.012, 4, 12), M.metal); chain.position.set(GATE.x, 1.28, FENCE); scene.add(chain);
+    GATE.lock = [lock, chain];
+    // the gate blocks bodies and you, but the walk grid treats it as a way through (only the police ever use it)
+    GATE.box = world.addBox(new THREE.Vector3(GATE.x - GATE.w / 2, 0, FENCE - 0.15), new THREE.Vector3(GATE.x + GATE.w / 2, H, FENCE + 0.15), false);
   }
 
   mergeStatic(statics, scene);

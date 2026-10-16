@@ -228,6 +228,20 @@ export const sfx = {
     } else if (!on && this._siren) { const { o, g } = this._siren; g.gain.setTargetAtTime(0, ac.currentTime, 0.4); o.stop(ac.currentTime + 2); this._siren = null; }
   },
   tick() { tone('square', 1100, 1100, 0.03, 0.06); },
+  // rain: a steady hiss with heavier patter over it
+  rain(on) {
+    if (!ac) return;
+    if (on && !this._rain) {
+      const mk = (f, q, vol) => { const s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = noiseBuf; s.loop = true; fl.type = 'bandpass'; fl.frequency.value = f; fl.Q.value = q; g.gain.value = 0; s.connect(fl).connect(g).connect(ac.destination); s.start(); g.gain.setTargetAtTime(vol, ac.currentTime, 1.5); return { s, g }; };
+      this._rain = [mk(3500, 0.4, 0.035), mk(900, 0.6, 0.022), mk(250, 0.8, 0.012)];
+    } else if (!on && this._rain) { for (const r of this._rain) { r.g.gain.setTargetAtTime(0, ac.currentTime, 0.5); r.s.stop(ac.currentTime + 3); } this._rain = null; }
+  },
+  thunder() {
+    if (!ac) return;
+    noise(0.25, 0.5, 3000, 600, 'lowpass', null, 0, 1);   // the crack
+    noise(4.5, 0.7, 400, 40, 'lowpass', null, 0.15, 1);   // the roll
+    for (let i = 0; i < 4; i++) noise(0.8 + R(), 0.35, 200 + R() * 150, 50, 'lowpass', null, 0.6 + i * 0.7 + R() * 0.4);
+  },
   // ---- the wet stuff
   // a squelch: several sticky pops through a resonant, shifting filter, over a low give
   squelch(pos, amt = 1) {

@@ -1,14 +1,14 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=5';
-import { Human } from './body.js?v=5';
-import { Blood } from './blood.js?v=5';
-import { sfx } from './sfx.js?v=5';
-import { score } from './score.js?v=5';
-import { Rain } from './rain.js?v=5';
-import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=5';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=5';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=5';
+import { Sim, STEP, segDist } from './sim.js?v=6';
+import { Human } from './body.js?v=6';
+import { Blood } from './blood.js?v=6';
+import { sfx } from './sfx.js?v=6';
+import { score } from './score.js?v=6';
+import { Rain } from './rain.js?v=6';
+import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=6';
+import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=6';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=6';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);

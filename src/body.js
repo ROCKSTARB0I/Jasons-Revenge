@@ -3,8 +3,8 @@
 // they aren't: knocked down, grabbed, dead. Shaped limbs, painted faces and
 // clothes, and wounds that tear the meshes apart.
 import * as THREE from '../vendor/three.module.js';
-import { segDist } from './sim.js?v=5';
-import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=5';
+import { segDist } from './sim.js?v=6';
+import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=6';
 
 const V = THREE.Vector3, R = Math.random;
 const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), mb = new THREE.Matrix4(), UP = new V(0, 1, 0);
@@ -18,7 +18,10 @@ const REST = {
   rHip: [0.095, 0.92, 0], rKn: [0.1, 0.5, 0.02], rAn: [0.1, 0.085, -0.01], rToe: [0.105, 0.03, 0.15],
 };
 const MASS = { pelvis: 4, spine: 3, chest: 4, neck: 1, head: 2.5, lSh: 1.5, rSh: 1.5, lHip: 2, rHip: 2 };
-const RAD = { pelvis: 0.12, spine: 0.11, chest: 0.12, head: 0.11, neck: 0.06, lAn: 0.05, rAn: 0.05, lToe: 0.04, rToe: 0.04, lFin: 0.04, rFin: 0.04 };
+// collision radius of each point: as thick as the flesh round it, so nothing lies half through the floor
+const RAD = { pelvis: 0.13, spine: 0.12, chest: 0.13, neck: 0.065, head: 0.12,
+  lSh: 0.095, rSh: 0.095, lEl: 0.05, rEl: 0.05, lWr: 0.035, rWr: 0.035, lFin: 0.03, rFin: 0.03,
+  lHip: 0.095, rHip: 0.095, lKn: 0.06, rKn: 0.06, lAn: 0.05, rAn: 0.05, lToe: 0.045, rToe: 0.045 };
 const HIPS = ['pelvis', 'spine', 'lHip', 'rHip'], CHEST = ['spine', 'chest', 'neck', 'lSh', 'rSh'];
 // what comes away with each joint when it's cut
 const BELOW = {
@@ -605,6 +608,11 @@ export class Human {
     // a last push the way they were going
     const v = this.speed;
     if (v > 0.5) for (const k in this.p) this.p[k].addVel(Math.sin(this.yaw) * v * 0.6, 0, Math.cos(this.yaw) * v * 0.6);
+    // the legs go: knees buckle forward and the top half falls, so no corpse is left standing
+    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), side = R() < 0.5 ? -1 : 1, fall = 0.6 + R() * 1.2;
+    for (const k of ['lKn', 'rKn']) if (!this.loose?.has(k)) this.p[k].addVel(fx * 1.6, -0.3, fz * 1.6);
+    for (const k of ['chest', 'neck', 'head', 'lSh', 'rSh']) if (!this.loose?.has(k)) this.p[k].addVel(-fx * fall + fz * side * 0.6, -0.4, -fz * fall - fx * side * 0.6);
+    this.p.pelvis.addVel(0, -0.6, 0);
     this.blood.pool(this.p.chest, this.bleed > 5 ? 1.4 : 0.8);
     this.onDeath?.(this);
   }

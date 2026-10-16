@@ -590,7 +590,7 @@ export function buildCamp(scene, world) {
   }) });
   const NT = 2600, tufts = [new THREE.InstancedMesh(tuftGeo, tuftMat, NT), new THREE.InstancedMesh(tuftGeo2, tuftMat, NT)];
   for (let i = 0; i < NT; i++) {
-    let x, z; do { x = (srand() * 2 - 1) * 70; z = SHORE(0) + srand() * 100; } while (z < SHORE(x) + 1);
+    let x, z; do { x = (srand() * 2 - 1) * 70; z = SHORE(0) + srand() * 100; } while (z < SHORE(x) + 1 || rectHeight(FLOORS, x, z) > -9 || rectHeight(FLOORS, x + 0.4, z) > -9 || rectHeight(FLOORS, x, z + 0.4) > -9);   // not up through the floorboards
     const s = 0.6 + srand() * 1.2;
     m4.compose(ps.set(x, 0, z), q.setFromAxisAngle(sc.set(0, 1, 0), srand() * 6), sc.set(s, s, s));
     tufts[0].setMatrixAt(i, m4); tufts[1].setMatrixAt(i, m4);

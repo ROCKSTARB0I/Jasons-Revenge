@@ -109,7 +109,7 @@ export function buildWeapon(kind) {
     case 'axe': {
       // long hickory haft, worn smooth and stained, a rusted wedge head
       const haft = cyl(g, M.wood, 0.019, 0.016, 0.86, 0, 0, -0.39, 10); haft.scale.x = 0.82;
-      const head = new THREE.Group(); head.position.set(0, 0.02, -0.79); g.add(head);
+      const head = new THREE.Group(); head.position.set(0, -0.02, -0.79); head.rotation.z = Math.PI; g.add(head);   // edge on the same side as the machete's
       const eye = box(head, M.rust, 0.04, 0.06, 0.07, 0, 0, 0);
       const s = new THREE.Shape(); s.moveTo(-0.035, 0.02); s.lineTo(0.13, 0.075); s.quadraticCurveTo(0.16, 0, 0.13, -0.075); s.lineTo(-0.035, -0.02); s.closePath();
       const wedge = new THREE.Mesh(new THREE.ExtrudeGeometry(s, { depth: 0.012, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.004, bevelSegments: 1 }), M.bloody);
@@ -131,7 +131,7 @@ export function buildWeapon(kind) {
     }
     case 'hatchet': {
       const haft = cyl(g, M.wood, 0.016, 0.014, 0.42, 0, 0, -0.19, 10); haft.scale.x = 0.8;
-      const head = new THREE.Group(); head.position.set(0, 0.015, -0.38); g.add(head);
+      const head = new THREE.Group(); head.position.set(0, -0.015, -0.38); head.rotation.z = Math.PI; g.add(head);
       box(head, M.rust, 0.032, 0.05, 0.05, 0, 0, 0);
       const s2 = new THREE.Shape(); s2.moveTo(-0.025, 0.015); s2.lineTo(0.09, 0.05); s2.quadraticCurveTo(0.11, 0, 0.09, -0.05); s2.lineTo(-0.025, -0.015); s2.closePath();
       const w = new THREE.Mesh(new THREE.ExtrudeGeometry(s2, { depth: 0.01, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.003, bevelSegments: 1 }), M.bloody);
@@ -159,7 +159,7 @@ export function buildWeapon(kind) {
     }
     case 'hammer': {
       cyl(g, M.wood, 0.016, 0.013, 0.32, 0, 0, -0.15, 10);
-      const head = new THREE.Group(); head.position.set(0, 0, -0.31); g.add(head);
+      const head = new THREE.Group(); head.position.set(0, 0, -0.31); head.rotation.z = Math.PI; g.add(head);   // striking face leads
       const face = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.018, 0.06, 10), M.steel); face.position.y = 0.035; head.add(face);
       box(head, M.steel, 0.026, 0.03, 0.03, 0, 0, 0);
       const claw = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.008, 4, 10, Math.PI * 0.5), M.steel); claw.position.set(0, -0.0, 0.0); claw.rotation.set(0, Math.PI / 2, Math.PI); head.add(claw);

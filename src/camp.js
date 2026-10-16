@@ -9,7 +9,26 @@ export const WATER_Y = -0.12;
 export const DOCK = { x0: -1.3, x1: 1.3, z0: -46, z1: -27 };
 const inDock = (x, z) => x > DOCK.x0 && x < DOCK.x1 && z > DOCK.z0 && z < DOCK.z1;
 // ground height the physics (and your feet) stand on
+// raised floors (cabins, the lodge, porches, the shed) and, for bodies only, the bunks
+const FLOORS = [], BUNKS = [];
+function rectAdd(list, cx, cz, yaw, lx, lz, w, d, h) {
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  list.push({ x: cx + lx * c + lz * s, z: cz - lx * s + lz * c, c, s, hw: w / 2, hd: d / 2, h, r: Math.hypot(w, d) / 2 });
+}
+function rectHeight(list, x, z) {
+  let best = -9;
+  for (const f of list) {
+    const dx = x - f.x, dz = z - f.z;
+    if (dx * dx + dz * dz > f.r * f.r) continue;
+    const lx = dx * f.c - dz * f.s, lz = dx * f.s + dz * f.c;
+    if (Math.abs(lx) <= f.hw && Math.abs(lz) <= f.hd && f.h > best) best = f.h;
+  }
+  return best;
+}
+// where things that fall come to rest: the ground, a floor, or a bunk
+export function restAt(x, z) { return Math.max(groundAt(x, z), rectHeight(BUNKS, x, z)); }
 export function groundAt(x, z) {
+  const fl = rectHeight(FLOORS, x, z); if (fl > -9) return fl;
   if (inDock(x, z)) return 0.05;
   const s = SHORE(x);
   if (z > s) return 0;
@@ -286,6 +305,9 @@ export function buildCamp(scene, world) {
     box(g, M.wood, side, H, T, -(door / 2 + side / 2), H / 2, D / 2); box(g, M.wood, side, H, T, door / 2 + side / 2, H / 2, D / 2);
     box(g, M.wood, door, H - 2.05, T, 0, 2.05 + (H - 2.05) / 2, D / 2);
     box(g, M.woodDark, W + 0.4, 0.2, D + 0.4, 0, 0.1, 0);     // floor
+    rectAdd(FLOORS, C.x, C.z, C.yaw, 0, 0, W + 0.4, D + 0.4, 0.2);
+    rectAdd(FLOORS, C.x, C.z, C.yaw, 0, D / 2 + 0.35, 1.6, 0.6, 0.145);
+    for (const sx of [-1, 1]) rectAdd(BUNKS, C.x, C.z, C.yaw, sx * (W / 2 - 0.6), -0.6, 0.85, 1.85, 0.62);
     // roof: two slopes
     for (const s of [-1, 1]) { const r = box(g, M.roof, W + 0.6, 0.08, D / 2 / Math.cos(0.5) + 0.4, 0, H + Math.tan(0.5) * D / 4, s * D / 4); r.rotation.x = s * 0.5; }
     const gable = new THREE.Shape(); gable.moveTo(-W / 2, 0); gable.lineTo(W / 2, 0); gable.lineTo(0, Math.tan(0.5) * D / 2 + 0.05); gable.closePath();
@@ -336,6 +358,7 @@ export function buildCamp(scene, world) {
     box(g, M.log, side, H, T, -(door / 2 + side / 2), H / 2, D / 2); box(g, M.log, side, H, T, door / 2 + side / 2, H / 2, D / 2);
     box(g, M.log, door, H - 2.2, T, 0, 2.2 + (H - 2.2) / 2, D / 2);
     box(g, M.woodDark, W + 0.5, 0.25, D + 0.5, 0, 0.12, 0);
+    rectAdd(FLOORS, L.x, L.z, L.yaw, 0, 0, W + 0.5, D + 0.5, 0.245); rectAdd(FLOORS, L.x, L.z, L.yaw, 0, D / 2 + 1.2, W, 2.4, 0.195);
     for (const s of [-1, 1]) { const r = box(g, M.roof, W + 1.2, 0.1, D / 2 / Math.cos(0.55) + 0.8, 0, H + Math.tan(0.55) * D / 4, s * D / 4); r.rotation.x = s * 0.55; }
     const gable = new THREE.Shape(); gable.moveTo(-W / 2, 0); gable.lineTo(W / 2, 0); gable.lineTo(0, Math.tan(0.55) * D / 2); gable.closePath();
     for (const s of [-1, 1]) { const m = new THREE.Mesh(new THREE.ShapeGeometry(gable), M.log); m.position.set(0, H, s * D / 2); if (s < 0) m.rotation.y = Math.PI; g.add(m); }
@@ -373,6 +396,7 @@ export function buildCamp(scene, world) {
     const W = 4.4, D = 3.2, H = 2.5, door = 1.6, g = new THREE.Group(); g.position.set(SHED.x, 0, SHED.z); statics.add(g);
     // local -z faces the water
     box(g, M.woodDark, W + 0.3, 0.12, D + 0.3, 0, 0.06, 0);
+    rectAdd(FLOORS, SHED.x, SHED.z, 0, 0, 0, W + 0.3, D + 0.3, 0.12);
     box(g, M.wood, W, H, 0.1, 0, H / 2, D / 2);                                   // back wall
     box(g, M.wood, 0.1, H, D, -W / 2, H / 2, 0); box(g, M.wood, 0.1, H, D, W / 2, H / 2, 0);
     const side = (W - door) / 2;

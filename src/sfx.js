@@ -5,48 +5,64 @@ let ac = null, bus = null, noiseBuf = null, verb = null, verbSend = null;
 const L = { x: 0, y: 0, z: 0, yaw: 0 };
 const R = Math.random;
 
+// Everything goes through one limiter (so nothing can blow the mix up) and
+// shares one short reverb; the Quest's audio thread can't afford more.
+let master = null;
+let live = 0;                 // sounds playing right now
+const BUDGET = 48;            // past this, small sounds are skipped rather than overloading the Quest
+function track(node, until) { live++; node.onended = () => { live--; }; return node; }
 function ctx() {
   if (!ac) {
-    ac = new (window.AudioContext || window.webkitAudioContext)();
-    bus = ac.createGain(); bus.connect(ac.destination);
+    ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
+    master = ac.createDynamicsCompressor();
+    master.threshold.value = -10; master.knee.value = 6; master.ratio.value = 12; master.attack.value = 0.003; master.release.value = 0.2;
+    master.connect(ac.destination);
+    bus = ac.createGain(); bus.connect(master);
     noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = R() * 2 - 1;
-    // the open air: a long, thin tail off the trees and the water
+    // the open air: a short, thin tail off the trees and the water
     verb = ac.createConvolver();
-    const n = ac.sampleRate * 2.6, b = ac.createBuffer(2, n, ac.sampleRate);
-    for (let c = 0; c < 2; c++) { const x = b.getChannelData(c); for (let i = 0; i < n; i++) x[i] = (R() * 2 - 1) * Math.pow(1 - i / n, 3.5) * (i < 400 ? 0 : 1); }
-    verb.buffer = b; verbSend = ac.createGain(); verbSend.gain.value = 0.22; verbSend.connect(verb).connect(ac.destination);
+    const n = Math.floor(ac.sampleRate * 1.3), b = ac.createBuffer(2, n, ac.sampleRate);
+    for (let c = 0; c < 2; c++) { const x = b.getChannelData(c); for (let i = 0; i < n; i++) x[i] = (R() * 2 - 1) * Math.pow(1 - i / n, 3) * (i < 300 ? 0 : 1); }
+    verb.buffer = b; verbSend = ac.createGain(); verbSend.gain.value = 0.2; verbSend.connect(verb).connect(master);
+    // the Quest suspends audio when the headset blinks off or a session starts: bring it back
+    const wake = () => { if (ac.state !== 'running' && ac.state !== 'closed') ac.resume().catch(() => {}); };
+    ac.addEventListener('statechange', () => setTimeout(wake, 200));
+    setInterval(wake, 1500);
+    for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, wake);
   }
-  if (ac.state === 'suspended') ac.resume();
+  if (ac.state !== 'running') ac.resume().catch(() => {});
   return ac;
 }
+const ok = v => Number.isFinite(v) ? v : 0;
 // where a sound comes from: pan, distance falloff, and the far ones muffled
 function place(pos, vol = 1) {
   const g = ac.createGain();
-  if (!pos) { g.gain.value = vol; g.connect(bus); return g; }
-  const dx = pos.x - L.x, dz = pos.z - L.z, dist = Math.hypot(dx, dz, (pos.y ?? L.y) - L.y);
-  const pan = ac.createStereoPanner(), lp = ac.createBiquadFilter();
-  pan.pan.value = Math.max(-1, Math.min(1, Math.sin(Math.atan2(dx, -dz) + L.yaw)));
-  lp.type = 'lowpass'; lp.frequency.value = Math.max(700, 16000 / (1 + dist * 0.18));
-  g.gain.value = vol / (1 + dist * 0.22);
-  g.connect(lp).connect(pan).connect(bus);
-  const s = ac.createGain(); s.gain.value = Math.min(1, dist / 20); g.connect(s).connect(verbSend);
+  if (!pos) { g.gain.value = ok(vol); g.connect(bus); return g; }
+  const dx = ok(pos.x - L.x), dz = ok(pos.z - L.z), dist = Math.hypot(dx, dz, ok((pos.y ?? L.y) - L.y));
+  const pan = ac.createStereoPanner();
+  pan.pan.value = Math.max(-1, Math.min(1, ok(Math.sin(Math.atan2(dx, -dz) + L.yaw))));
+  g.gain.value = ok(vol / (1 + dist * 0.22));
+  if (dist > 12) { const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.max(700, 16000 / (1 + dist * 0.18)); g.connect(lp).connect(pan); }   // far off: muffled
+  else g.connect(pan);
+  pan.connect(bus);
+  if (dist > 4) { const s = ac.createGain(); s.gain.value = Math.min(1, dist / 20); g.connect(s).connect(verbSend); }
   return g;
 }
 function noise(dur, vol, f0, f1, type = 'lowpass', pos = null, delay = 0, q = 1) {
-  if (!ac) return;
+  if (!ac || ac.state !== 'running' || live > BUDGET) return;
   const t = ac.currentTime + delay, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
   s.buffer = noiseBuf; s.loop = true; s.loopStart = R();
   f.type = type; f.Q.value = q; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
   g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + Math.min(0.01, dur * 0.2)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  s.connect(f).connect(g).connect(place(pos)); s.start(t); s.stop(t + dur + 0.05);
+  s.connect(f).connect(g).connect(place(pos)); track(s); s.start(t); s.stop(t + dur + 0.05);
 }
 function tone(type, f0, f1, dur, vol, pos = null, delay = 0) {
-  if (!ac) return;
+  if (!ac || ac.state !== 'running' || live > BUDGET) return;
   const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
   o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
   g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(place(pos)); o.start(t); o.stop(t + dur + 0.05);
+  o.connect(g).connect(place(pos)); track(o); o.start(t); o.stop(t + dur + 0.05);
 }
 
 // ---------------------------------------------------------------- voices
@@ -58,11 +74,8 @@ function vox(out, t, dur, f0, contour, vowels, vol, rough = 0.2, breath = 0.15) 
   for (const [ct, m] of contour.slice(1)) f.linearRampToValueAtTime(f0 * m, t + ct * dur);
   // tremble and jitter: terror in the voice
   const vib = ac.createOscillator(), vg = ac.createGain(); vib.frequency.value = 5.5 + R() * 3; vg.gain.value = f0 * 0.025 * (1 + rough * 2); vib.connect(vg).connect(f);
-  const jit = ac.createBufferSource(), jg = ac.createGain(), jf = ac.createBiquadFilter(); jit.buffer = noiseBuf; jit.loop = true; jf.type = 'lowpass'; jf.frequency.value = 40; jg.gain.value = f0 * rough * 0.12; jit.connect(jf).connect(jg).connect(f);
-  // breath noise mixed into the source
-  const br = ac.createBufferSource(), bg = ac.createGain(), bf = ac.createBiquadFilter(); br.buffer = noiseBuf; br.loop = true; bf.type = 'highpass'; bf.frequency.value = 900; bg.gain.value = breath;
   const sum = ac.createGain(); sum.gain.value = 1;
-  src.connect(sum); br.connect(bf).connect(bg).connect(sum);
+  src.connect(sum);
   const env = ac.createGain();
   env.gain.setValueAtTime(0.0001, t); env.gain.linearRampToValueAtTime(vol, t + Math.min(0.06, dur * 0.15));
   env.gain.setValueAtTime(vol * 0.9, t + dur * 0.75); env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -77,7 +90,7 @@ function vox(out, t, dur, f0, contour, vowels, vol, rough = 0.2, breath = 0.15) 
   // a little of the raw buzz for edge
   const raw = ac.createGain(); raw.gain.value = 0.04 + rough * 0.06; sum.connect(raw).connect(env);
   env.connect(out);
-  for (const n of [src, vib, jit, br]) { n.start(t); n.stop(t + dur + 0.05); }
+  track(src); for (const n of [src, vib]) { n.start(t); n.stop(t + dur + 0.05); }
 }
 // gasping breaths, wet choking
 function breathy(out, t, dur, vol, f = 1200) {
@@ -87,8 +100,10 @@ function breathy(out, t, dur, vol, f = 1200) {
   s.connect(bp).connect(g).connect(out); s.start(t); s.stop(t + dur + 0.05);
 }
 // ev: scream, shriek, plead, help, sob, gasp, choke, hurt, die, dismember, burning, whimper
+let voicesNow = 0;
 function voice(ev, pos, female = false, vol = 1) {
-  if (!ac) return null;
+  if (!ac || ac.state !== 'running' || voicesNow >= 3 || live > BUDGET) return null;
+  voicesNow++; setTimeout(() => voicesNow--, 1500);
   const out = place(pos, 0.9 * vol), t = ac.currentTime + 0.02;
   const f0 = (female ? 290 : 150) * (0.9 + R() * 0.2), hi = female ? 2.3 : 2.1;
   let end = 1;
@@ -140,31 +155,31 @@ function ambience(fearFn) {
   if (amb.on) return; amb.on = true;
   const brown = ac.createBuffer(1, ac.sampleRate * 4, ac.sampleRate), d = brown.getChannelData(0);
   let b = 0; for (let i = 0; i < d.length; i++) { b = b * 0.985 + (R() * 2 - 1) * 0.015; d[i] = b * 4; }
-  const loop = (filterType, f, vol) => { const s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = brown; s.loop = true; fl.type = filterType; fl.frequency.value = f; g.gain.value = vol; s.connect(fl).connect(g).connect(ac.destination); s.start(); return { fl, g }; };
+  const loop = (filterType, f, vol) => { const s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = brown; s.loop = true; fl.type = filterType; fl.frequency.value = f; g.gain.value = vol; s.connect(fl).connect(g).connect(master); s.start(); return { fl, g }; };
   amb.wind = loop('bandpass', 380, 0.25); amb.wind.fl.Q.value = 0.5;
   amb.lap = loop('lowpass', 650, 0);
   // crickets: a carpet of chirps from all around
   const cricket = () => {
     if (!amb.on) return;
-    const t = ac.currentTime, p = ac.createStereoPanner(); p.pan.value = R() * 2 - 1; p.connect(ac.destination);
+    const t = ac.currentTime, p = ac.createStereoPanner(); p.pan.value = R() * 2 - 1; p.connect(master);
     const f = 4200 + R() * 900, n = 2 + Math.floor(R() * 3);
     for (let i = 0; i < n; i++) { const o = ac.createOscillator(), g = ac.createGain(), st = t + i * 0.055; o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, st); g.gain.linearRampToValueAtTime(0.008 * amb.crickets, st + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, st + 0.035); o.connect(g).connect(p); o.start(st); o.stop(st + 0.04); }
-    setTimeout(cricket, 120 + R() * 380);
+    setTimeout(cricket, 350 + R() * 700);
   };
-  amb.crickets = 1; cricket(); setTimeout(cricket, 200); setTimeout(cricket, 330);
+  amb.crickets = 1; cricket();
   const loon = () => {
     if (!amb.on) return;
     const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(), p = ac.createStereoPanner(); p.pan.value = R() * 1.6 - 0.8;
     o.type = 'sine'; o.frequency.setValueAtTime(620, t); o.frequency.linearRampToValueAtTime(880, t + 0.7); o.frequency.linearRampToValueAtTime(820, t + 1.8); o.frequency.linearRampToValueAtTime(940, t + 2.4); o.frequency.linearRampToValueAtTime(600, t + 3.2);
     const vib = ac.createOscillator(), vg = ac.createGain(); vib.frequency.value = 6; vg.gain.value = 12; vib.connect(vg).connect(o.frequency); vib.start(t); vib.stop(t + 3.3);
     g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.04, t + 0.3); g.gain.setValueAtTime(0.04, t + 2.8); g.gain.exponentialRampToValueAtTime(0.0001, t + 3.3);
-    o.connect(g).connect(p).connect(ac.destination); p.connect(verbSend); o.start(t); o.stop(t + 3.4);
+    o.connect(g).connect(p).connect(master); p.connect(verbSend); o.start(t); o.stop(t + 3.4);
     setTimeout(loon, 25000 + R() * 40000);
   };
   setTimeout(loon, 9000);
   const owl = () => {
     if (!amb.on) return;
-    const t = ac.currentTime, p = ac.createStereoPanner(); p.pan.value = R() * 2 - 1; p.connect(ac.destination);
+    const t = ac.currentTime, p = ac.createStereoPanner(); p.pan.value = R() * 2 - 1; p.connect(master);
     for (const [dt, len] of [[0, 0.35], [0.5, 0.18], [0.75, 0.5]]) { const o = ac.createOscillator(), g = ac.createGain(); o.frequency.setValueAtTime(390, t + dt); o.frequency.linearRampToValueAtTime(340, t + dt + len); g.gain.setValueAtTime(0.0001, t + dt); g.gain.linearRampToValueAtTime(0.028, t + dt + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + dt + len); o.connect(g).connect(p); o.start(t + dt); o.stop(t + dt + len + 0.05); }
     setTimeout(owl, 18000 + R() * 30000);
   };
@@ -183,7 +198,7 @@ function updateAmbience(nearShore, quiet) {
 }
 
 export const sfx = {
-  init: ctx, get ctx() { return ac; },
+  init: ctx, get ctx() { return ac; }, get master() { return master; }, get verb() { return verbSend; },
   setListener(x, y, z, yaw) { L.x = x; L.y = y; L.z = z; L.yaw = yaw; },
   voice, ambience, updateAmbience,
   now: () => ac ? ac.currentTime : 0,
@@ -232,7 +247,7 @@ export const sfx = {
   rain(on) {
     if (!ac) return;
     if (on && !this._rain) {
-      const mk = (f, q, vol) => { const s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = noiseBuf; s.loop = true; fl.type = 'bandpass'; fl.frequency.value = f; fl.Q.value = q; g.gain.value = 0; s.connect(fl).connect(g).connect(ac.destination); s.start(); g.gain.setTargetAtTime(vol, ac.currentTime, 1.5); return { s, g }; };
+      const mk = (f, q, vol) => { const s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = noiseBuf; s.loop = true; fl.type = 'bandpass'; fl.frequency.value = f; fl.Q.value = q; g.gain.value = 0; s.connect(fl).connect(g).connect(master); s.start(); g.gain.setTargetAtTime(vol, ac.currentTime, 1.5); return { s, g }; };
       this._rain = [mk(3500, 0.4, 0.035), mk(900, 0.6, 0.022), mk(250, 0.8, 0.012)];
     } else if (!on && this._rain) { for (const r of this._rain) { r.g.gain.setTargetAtTime(0, ac.currentTime, 0.5); r.s.stop(ac.currentTime + 3); } this._rain = null; }
   },

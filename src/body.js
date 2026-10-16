@@ -3,8 +3,8 @@
 // they aren't: knocked down, grabbed, dead. Shaped limbs, painted faces and
 // clothes, and wounds that tear the meshes apart.
 import * as THREE from '../vendor/three.module.js';
-import { segDist } from './sim.js?v=4';
-import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=4';
+import { segDist } from './sim.js?v=5';
+import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=5';
 
 const V = THREE.Vector3, R = Math.random;
 const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), mb = new THREE.Matrix4(), UP = new V(0, 1, 0);
@@ -343,7 +343,7 @@ export class Human {
       const target = this.goal ? this.wantSpeed * Math.max(0.2, Math.cos(d)) : 0;
       this.speed += (target - this.speed) * Math.min(1, dt * 3);
       this.root.x += Math.sin(this.yaw) * this.speed * dt; this.root.z += Math.cos(this.yaw) * this.speed * dt;
-      push?.(this.root);
+      if (this.pose !== 'sleep') push?.(this.root);
       this.phase += this.speed * dt * (this.speed > 2 ? 4.4 : 5.6);
       this.ground = floorAt(this.root.x, this.root.z);
       this.applyPose(dt);

@@ -13,7 +13,8 @@ function impulse(secs) {
 }
 // one bowed string section note: detuned saws through a body resonance
 function bow(t, freq, dur, vol, o = {}) {
-  const attack = o.attack ?? 0.25, release = o.release ?? 0.5, voices = o.voices ?? 3;
+  if (ac.state !== 'running') return;
+  const attack = o.attack ?? 0.25, release = o.release ?? 0.5, voices = Math.min(2, o.voices ?? 2);
   const g = ac.createGain(), lp = ac.createBiquadFilter(), body = ac.createBiquadFilter();
   lp.type = 'lowpass'; lp.frequency.value = o.bright ?? Math.min(6000, freq * 6); lp.Q.value = 0.7;
   body.type = 'peaking'; body.frequency.value = o.formant ?? 900; body.gain.value = 5; body.Q.value = 1.2;
@@ -28,7 +29,7 @@ function bow(t, freq, dur, vol, o = {}) {
   for (let i = 0; i < voices; i++) {
     const osc = ac.createOscillator(); osc.type = 'sawtooth';
     osc.frequency.value = freq * (1 + (i - (voices - 1) / 2) * 0.0045);
-    if (o.vib !== 0) { const v = ac.createOscillator(), vg = ac.createGain(); v.frequency.value = 5 + Math.random(); vg.gain.value = freq * (o.vib ?? 0.004); v.connect(vg).connect(osc.frequency); v.start(t); v.stop(t + dur + 0.05); }
+    if (o.vib !== 0 && dur > 1.5) { const v = ac.createOscillator(), vg = ac.createGain(); v.frequency.value = 5 + Math.random(); vg.gain.value = freq * (o.vib ?? 0.004); v.connect(vg).connect(osc.frequency); v.start(t); v.stop(t + dur + 0.05); }
     if (o.slide) osc.frequency.exponentialRampToValueAtTime(freq * o.slide, t + dur);
     osc.connect(lp); osc.start(t); osc.stop(t + dur + 0.05);
   }
@@ -53,6 +54,7 @@ function stab(t, notes, vol = 0.07) {
 const STABS = [[76, 77, 82], [64, 70, 71], [79, 80, 85], [71, 72, 78], [88, 89, 94]];
 
 function schedule() {
+  if (ac.state !== 'running') { next.ost = next.pad = next.trem = next.pizz = 0; return; }
   const now = ac.currentTime, ahead = now + 0.25;
   tension += (target - tension) * 0.08;
   const T = tension;
@@ -95,13 +97,13 @@ function schedule() {
 const pick = a => a[Math.floor(Math.random() * a.length)];
 
 export const score = {
-  start(audioCtx) {
+  // dest: where the music goes (the game's limiter); verb: the game's one reverb, shared
+  start(audioCtx, dest, verb) {
     if (ac) return;
     ac = audioCtx;
-    master = ac.createGain(); master.gain.value = 0; master.connect(ac.destination);
+    master = ac.createGain(); master.gain.value = 0; master.connect(dest ?? ac.destination);
     out = ac.createGain(); out.gain.value = 1; out.connect(master);
-    const verb = ac.createConvolver(); verb.buffer = impulse(3.2);
-    verbIn = ac.createGain(); verbIn.gain.value = 0.55; verbIn.connect(verb); verb.connect(master);
+    verbIn = ac.createGain(); verbIn.gain.value = 1.4; verbIn.connect(verb ?? master);
     Object.assign(next, { ost: ac.currentTime, pizz: ac.currentTime + 2, stab: 0, pad: 0, trem: 0 });
     timer = setInterval(schedule, 100);
   },

@@ -58,12 +58,24 @@ export const WEAPONS = {
   machete: { name: 'Machete', len: 0.7, melee: true, blade: 0.2, dmg: 4.5 },
   axe: { name: 'Axe', len: 0.86, melee: true, blade: 0.8, dmg: 6, halves: true, heavy: true },
   knife: { name: 'Hunting knife', len: 0.32, melee: true, blade: 0.36, dmg: 2.5, tiltVR: 0.8, tiltDesk: 0.1, thrust: true },
-  pitchfork: { name: 'Pitchfork', len: 1.45, melee: true, blade: 0.82, dmg: 3, thrust: true, impale: true, tiltVR: 0.25, tiltDesk: 0.1 },
+  pitchfork: { name: 'Pitchfork', len: 1.45, melee: true, blade: 0.82, dmg: 3, thrust: true, impale: true, noCut: true, tiltVR: 0.25, tiltDesk: 0.1 },
+  // from the shed
+  hatchet: { name: 'Hatchet', len: 0.42, melee: true, blade: 0.72, dmg: 5.5, heavy: true },
+  cleaver: { name: 'Meat cleaver', len: 0.36, melee: true, blade: 0.35, dmg: 5.5 },
+  sickle: { name: 'Sickle', len: 0.5, melee: true, blade: 0.3, dmg: 4 },
+  hammer: { name: 'Claw hammer', len: 0.34, melee: true, blade: 0.8, dmg: 3, blunt: true },
+  sledge: { name: 'Sledgehammer', len: 0.92, melee: true, blade: 0.84, dmg: 7, blunt: true, heavy: true },
+  crowbar: { name: 'Crowbar', len: 0.72, melee: true, blade: 0.45, dmg: 4, blunt: true },
+  icepick: { name: 'Ice pick', len: 0.26, melee: true, blade: 0.45, dmg: 2, thrust: true, noCut: true, tiltVR: 0.8, tiltDesk: 0.1 },
+  shears: { name: 'Garden shears', len: 0.56, melee: true, blade: 0.55, dmg: 3, thrust: true, tiltVR: 0.7, tiltDesk: 0.1 },
+  spear: { name: 'Fishing spear', len: 1.7, melee: true, blade: 0.86, dmg: 3, thrust: true, impale: true, noCut: true, tiltVR: 0.25, tiltDesk: 0.1 },
 };
 const HANDLE = -Math.PI / 2;
 // where the fist closes on each (tool space) and how it's rolled round the handle
 export const GRIPS = {
   machete: [[0, 0, -0.05], HANDLE], axe: [[0, 0, -0.08], HANDLE], knife: [[0, 0, -0.035], HANDLE], pitchfork: [[0, 0, -0.35], HANDLE],
+  hatchet: [[0, 0, -0.05], HANDLE], cleaver: [[0, 0, -0.05], HANDLE], sickle: [[0, 0, -0.05], HANDLE], hammer: [[0, 0, -0.05], HANDLE],
+  sledge: [[0, 0, -0.1], HANDLE], crowbar: [[0, 0, -0.08], HANDLE], icepick: [[0, 0, -0.04], HANDLE], shears: [[0, 0, -0.06], HANDLE], spear: [[0, 0, -0.45], HANDLE],
 };
 function box(g, mat, w, h, d, x, y, z, rx = 0) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); m.rotation.x = rx; g.add(m); return m; }
 function cyl(g, mat, r0, r1, len, x, y, z, seg = 10) { const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, len, seg), mat); m.rotation.x = Math.PI / 2; m.position.set(x, y, z); g.add(m); return m; }
@@ -115,6 +127,78 @@ export function buildWeapon(kind) {
       g.add(b);
       const e = bladeShape([[0.06, -0.016], [0.2, -0.02], [0.28, -0.012], [0.32, 0.0], [0.31, -0.002], [0.27, -0.011], [0.2, -0.016], [0.06, -0.012]], 0.0046, M.edge);
       g.add(e);
+      break;
+    }
+    case 'hatchet': {
+      const haft = cyl(g, M.wood, 0.016, 0.014, 0.42, 0, 0, -0.19, 10); haft.scale.x = 0.8;
+      const head = new THREE.Group(); head.position.set(0, 0.015, -0.38); g.add(head);
+      box(head, M.rust, 0.032, 0.05, 0.05, 0, 0, 0);
+      const s2 = new THREE.Shape(); s2.moveTo(-0.025, 0.015); s2.lineTo(0.09, 0.05); s2.quadraticCurveTo(0.11, 0, 0.09, -0.05); s2.lineTo(-0.025, -0.015); s2.closePath();
+      const w = new THREE.Mesh(new THREE.ExtrudeGeometry(s2, { depth: 0.01, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.003, bevelSegments: 1 }), M.bloody);
+      w.geometry.translate(0, 0, -0.005); w.rotation.set(0, Math.PI / 2, Math.PI / 2); head.add(w);
+      const e = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.005, 0.1), M.edge); e.position.set(0, 0.105, 0); head.add(e);
+      break;
+    }
+    case 'cleaver': {
+      cyl(g, M.wood, 0.015, 0.017, 0.12, 0, 0, -0.03, 10);
+      for (const z of [-0.0, -0.06]) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.036, 6), M.brass); r.rotation.z = Math.PI / 2; r.position.set(0, 0, z); g.add(r); }
+      const b = bladeShape([[0.09, 0.02], [0.36, 0.02], [0.36, -0.08], [0.11, -0.085], [0.09, -0.03]], 0.004, M.bloody); g.add(b);
+      const e = bladeShape([[0.1, -0.08], [0.36, -0.075], [0.36, -0.085], [0.11, -0.09]], 0.0045, M.edge); g.add(e);
+      const hole = new THREE.Mesh(new THREE.CircleGeometry(0.01, 10), M.black); hole.position.set(0.006, 0.0, -0.33); hole.rotation.y = Math.PI / 2; g.add(hole);
+      break;
+    }
+    case 'sickle': {
+      cyl(g, M.wood, 0.016, 0.015, 0.13, 0, 0, -0.04, 10);
+      box(g, M.rust, 0.01, 0.02, 0.03, 0, 0, -0.12);
+      // the crescent: a thin curved blade sweeping out and round
+      const pts = []; for (let i = 0; i <= 14; i++) { const a = i / 14 * Math.PI * 0.95; pts.push(new THREE.Vector3(0, Math.sin(a) * 0.17, -0.13 - (1 - Math.cos(a)) * 0.17)); }
+      const curve = new THREE.CatmullRomCurve3(pts);
+      const blade = new THREE.Mesh(new THREE.TubeGeometry(curve, 20, 0.007, 4), M.bloody); blade.scale.x = 0.5; g.add(blade);
+      const edge = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(p => p.clone().multiplyScalar(1).add(new THREE.Vector3(0, -0.012, 0)))), 20, 0.003, 3), M.edge); g.add(edge);
+      break;
+    }
+    case 'hammer': {
+      cyl(g, M.wood, 0.016, 0.013, 0.32, 0, 0, -0.15, 10);
+      const head = new THREE.Group(); head.position.set(0, 0, -0.31); g.add(head);
+      const face = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.018, 0.06, 10), M.steel); face.position.y = 0.035; head.add(face);
+      box(head, M.steel, 0.026, 0.03, 0.03, 0, 0, 0);
+      const claw = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.008, 4, 10, Math.PI * 0.5), M.steel); claw.position.set(0, -0.0, 0.0); claw.rotation.set(0, Math.PI / 2, Math.PI); head.add(claw);
+      break;
+    }
+    case 'sledge': {
+      cyl(g, M.wood, 0.019, 0.017, 0.9, 0, 0, -0.42, 10);
+      for (let i = 0; i < 5; i++) cyl(g, M.tape, 0.021, 0.021, 0.012, 0, 0, 0.02 - i * 0.03, 10);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.24, 0.075), M.rust); head.position.set(0, 0, -0.86); g.add(head);
+      for (const sy of [-1, 1]) { const f = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.01, 0.08), M.bloody); f.position.set(0, sy * 0.12, -0.86); g.add(f); }
+      break;
+    }
+    case 'crowbar': {
+      const bar = cyl(g, M.rust, 0.012, 0.012, 0.62, 0, 0, -0.31, 8);
+      const hook = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.012, 6, 12, Math.PI), M.rust); hook.position.set(0, 0.05, -0.62); hook.rotation.y = Math.PI / 2; g.add(hook);
+      const tip = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.006, 0.05), M.bloody); tip.position.set(0, 0.1, -0.6); g.add(tip);
+      box(g, M.rust, 0.02, 0.006, 0.05, 0, -0.01, 0.02, 0.4);
+      break;
+    }
+    case 'icepick': {
+      cyl(g, M.wood, 0.015, 0.016, 0.1, 0, 0, -0.02, 10);
+      cyl(g, M.brass, 0.012, 0.012, 0.012, 0, 0, -0.075);
+      cyl(g, M.steel, 0.004, 0.0008, 0.18, 0, 0, -0.17, 6);
+      break;
+    }
+    case 'shears': {
+      for (const sx of [-1, 1]) {
+        cyl(g, M.wood, 0.014, 0.013, 0.26, sx * 0.025, 0, -0.06, 8);
+        const b = bladeShape([[0.2, 0.012 * sx], [0.56, 0.002 * sx], [0.2, -0.01 * sx]], 0.003, M.bloody); b.position.x = sx * 0.006; b.rotation.z = sx * 0.04; g.add(b);
+      }
+      const pivot = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 8), M.black); pivot.rotation.z = Math.PI / 2; pivot.position.set(0, 0, -0.2); g.add(pivot);
+      break;
+    }
+    case 'spear': {
+      cyl(g, M.wood, 0.016, 0.014, 1.45, 0, 0, -0.5, 10);
+      cyl(g, M.rust, 0.018, 0.014, 0.06, 0, 0, -1.25, 8);
+      for (const x of [-0.035, 0, 0.035]) { const t = cyl(g, M.rust, 0.005, 0.0015, 0.42, x, 0, -1.48, 6); }
+      for (const x of [-0.035, 0, 0.035]) { const barb = new THREE.Mesh(new THREE.ConeGeometry(0.008, 0.03, 4), M.bloody); barb.rotation.x = -Math.PI / 2; barb.position.set(x, 0, -1.69); g.add(barb); }
+      box(g, M.rust, 0.09, 0.012, 0.012, 0, 0, -1.27);
       break;
     }
     case 'pitchfork': {

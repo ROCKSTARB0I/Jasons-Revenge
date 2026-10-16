@@ -1,14 +1,14 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=3';
-import { Human } from './body.js?v=3';
-import { Blood } from './blood.js?v=3';
-import { sfx } from './sfx.js?v=3';
-import { score } from './score.js?v=3';
-import { Rain } from './rain.js?v=3';
-import { buildCamp, groundAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=3';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=3';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=3';
+import { Sim, STEP, segDist } from './sim.js?v=4';
+import { Human } from './body.js?v=4';
+import { Blood } from './blood.js?v=4';
+import { sfx } from './sfx.js?v=4';
+import { score } from './score.js?v=4';
+import { Rain } from './rain.js?v=4';
+import { buildCamp, groundAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=4';
+import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=4';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=4';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -124,6 +124,16 @@ function plant(t, at, dir) {
   t.b.moveTo(at.x + dir.x * t.def.len * 0.14, at.y + dir.y * t.def.len * 0.14, at.z + dir.z * t.def.len * 0.14);
   t.a.locked = t.b.locked = true; t.planted = true;
 }
+function hang(t, slot) {
+  t.a.moveTo(slot.x, slot.y, slot.z); t.b.moveTo(slot.x, slot.y + t.def.len, slot.z);
+  t.a.locked = t.b.locked = true; t.planted = true; t.hung = true;
+  // flat of the blade facing into the shed: tool -Z up the wall, tool +X out of it
+  t.hangQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new V3(0, 0, -1), new V3(1, 0, 0), new V3(0, -1, 0)));
+}
+function lean(t, at) {
+  t.a.moveTo(at.x, 0.06 + 0.05, at.z); t.b.moveTo(at.x + 0.05, t.def.len * 0.96, at.z + 0.22);
+  t.a.locked = t.b.locked = true; t.planted = true; t.hung = true;
+}
 function resetTools() {
   for (const t of tools) { scene.remove(t.mesh); if (t.glint) scene.remove(t.glint); sim.remove(t); }
   tools.length = 0; for (const hs of holsters) hs.tool = null;
@@ -134,6 +144,9 @@ function resetTools() {
   plant(makeTool('knife'), tv2.set(0.7, 0.06, -36), tv.set(0.1, -1, 0.15).normalize());
   plant(makeTool('axe'), tv2.set(STUMP.x + 0.05, 0.62, STUMP.z), tv.set(0.15, -1, 0.3).normalize());
   plant(makeTool('pitchfork'), tv2.set(-4.5, 0.02, -21), tv.set(0.15, -1, 0.2).normalize());
+  // the shed: everything on the pegboard, grip down, head up; the long ones leaned in the corners; one outline left empty
+  ['hatchet', 'cleaver', 'sickle', 'hammer', null, 'icepick', 'shears', 'crowbar'].forEach((k, i) => { if (k) hang(makeTool(k), SHED.slots[i]); });
+  lean(makeTool('sledge'), SHED.lean[0]); lean(makeTool('spear'), SHED.lean[1]);
 }
 
 // a chopping stump on the shore for the axe
@@ -153,7 +166,7 @@ const glintMat = new THREE.SpriteMaterial({ color: 0xcfd8e8, transparent: true, 
 function updateGlints(t) {
   for (const tool of tools) {
     if (!tool.glint) { tool.glint = new THREE.Sprite(glintMat); tool.glint.scale.setScalar(0.22); scene.add(tool.glint); }
-    const free = !tool.held && !tool.holster && !tool.stuck;
+    const free = !tool.held && !tool.holster && !tool.stuck && !tool.hung;
     tool.glint.visible = free;
     if (!free) continue;
     tool.glint.position.set(tool.a.x + (tool.b.x - tool.a.x) * 0.55, tool.a.y + (tool.b.y - tool.a.y) * 0.55 + 0.04, tool.a.z + (tool.b.z - tool.a.z) * 0.55);
@@ -201,7 +214,7 @@ function grab(h) {
   if (best.type === 'tool') {
     const t = best.tool;
     if (t.stuck) { const d = t.stuck.d; blood.spray(t.b, tv.set(t.a.x - t.b.x, t.a.y - t.b.y, t.a.z - t.b.z).normalize(), 18, 2.5, 0.6); d.bleed += 4; t.stuck = null; sfx.slurp(t.b); sfx.squelch(t.b, 0.6); bloody(0.1); }
-    if (t.planted) { t.planted = false; sfx.thud(t.a); }
+    if (t.planted) { t.planted = false; t.hung = false; sfx.thud(t.a); }
     t.held = h; t.a.locked = t.b.locked = true; h.hasTip = false;
   } else {
     const { p, d } = best;
@@ -361,16 +374,29 @@ function melee(h, t, dt) {
         embed(t, d, part, at);
         return;
       }
+      if (def.blunt) {
+        const head = part === 'head' || part === 'neck', force = speed * (def.heavy ? 1.6 : 1);
+        d.hit(part, at, dirN, 'blunt', (head ? 32 : 15) * force / 3);
+        for (const k of ['chest', 'neck', 'head', 'spine']) d.p[k].addVel(dirN.x * force * 0.5, dirN.y * force * 0.5 + 0.4, dirN.z * force * 0.5);
+        if (head) {
+          d.bruise = Math.min(3, (d.bruise ?? 0) + (def.heavy ? 1.5 : 0.7));
+          if ((def.heavy && speed > 3.5) || (d.bruise >= 3 && speed > 3.2)) { d.cause = 'smash'; d.crushHead(); sfx.crunch(at); sfx.squelch(at); bloody(0.3); hitStop(0.1); continue; }
+          sfx.crack(at);
+        } else if (CUT[part]) { sfx.crack(at); d.limbDmg ??= {}; d.limbDmg[part] = 99; }   // that bone's gone
+        d.ragdoll(def.heavy ? 3 : 2); d.cause ??= 'bludgeon';
+        sfx.thud(at); sfx.punch(at); pulse(h, 1, def.heavy ? 120 : 80); hitStop(def.heavy ? 0.07 : 0.045);
+        continue;
+      }
       // the big ones: an axe down through the skull or level through the waist; any blade through the neck
       if (def.halves && speed > 3.6 && dirN.y < -0.6 && part === 'head') { d.cleaveHead(); sfx.chop(true, at); sfx.crunch(at); sfx.squelch(at); pulse(h, 1, 150); hitStop(0.1); bloody(0.3); continue; }
       if (def.halves && speed > 4.4 && Math.abs(dirN.y) < 0.5 && (part === 'hips' || (part === 'torso' && hit.t < 0.35))) { d.splitWaist(); sfx.chop(true, at); sfx.tear(at); sfx.slop(at); pulse(h, 1, 200); hitStop(0.12); bloody(0.4); continue; }
-      if ((part === 'neck' || (part === 'head' && hit.t < 0.3)) && speed > 3.2 && t.kind !== 'pitchfork' && (t.kind !== 'knife' || speed > 5)) { d.cause = 'decapitated'; d.decapitate(1.2); sfx.chop(def.heavy, at); sfx.tear(at); sfx.gush(at); pulse(h, 1, 150); hitStop(0.1); bloody(0.3); continue; }
-      if ((part === 'hips' || (part === 'torso' && hit.t < 0.5)) && speed > 3.2 && !d.gutted && t.kind !== 'pitchfork') { d.hit(part, at, dirN, 'slash', 30); d.disembowel(); sfx.chop(false, at); sfx.slop(at); hitStop(0.06); bloody(0.2); continue; }
+      if ((part === 'neck' || (part === 'head' && hit.t < 0.3)) && speed > 3.2 && !def.noCut && (def.len >= 0.4 || speed > 5)) { d.cause = 'decapitated'; d.decapitate(1.2); sfx.chop(def.heavy, at); sfx.tear(at); sfx.gush(at); pulse(h, 1, 150); hitStop(0.1); bloody(0.3); continue; }
+      if ((part === 'hips' || (part === 'torso' && hit.t < 0.5)) && speed > 3.2 && !d.gutted && !def.noCut) { d.hit(part, at, dirN, 'slash', 30); d.disembowel(); sfx.chop(false, at); sfx.slop(at); hitStop(0.06); bloody(0.2); continue; }
       // limbs come off once they've taken enough
       if (CUT[part]) {
         d.limbDmg ??= {}; d.limbDmg[part] = (d.limbDmg[part] ?? 0) + def.dmg * (speed / 3.5) * (def.heavy ? 1.6 : 1);
         d.hit(part, at, dirN, 'slash', 14);
-        if (d.limbDmg[part] >= LIMB_TOUGH[part.slice(1)] && t.kind !== 'pitchfork') { const j = CUT[part][hit.t > 0.55 ? 1 : 0]; if (d.sever(j, 1.2)) { sfx.chop(def.heavy, at); sfx.tear(at); hitStop(0.08); bloody(0.2); continue; } }
+        if (d.limbDmg[part] >= LIMB_TOUGH[part.slice(1)] && !def.noCut) { const j = CUT[part][hit.t > 0.55 ? 1 : 0]; if (d.sever(j, 1.2)) { sfx.chop(def.heavy, at); sfx.tear(at); hitStop(0.08); bloody(0.2); continue; } }
         sfx.chop(def.heavy, at); hitStop(0.035);
         continue;
       }
@@ -823,6 +849,7 @@ function killName(d) {
   if (d.split === 'waist') return 'cut in half';
   if (d.cleaved) return 'head split open';
   if (d.cause === 'crush') return 'skull crushed in your hand';
+  if (d.cause === 'smash') return 'skull smashed in';
   if (d.headGone) return 'head caved in';
   if (d.cause === 'ripHead') return 'head torn off';
   if (d.severed.has('neck')) return 'decapitated';
@@ -836,6 +863,7 @@ function killName(d) {
   if (d.cause === 'strangle') return 'strangled';
   if (d.cause === 'stab') return 'stabbed';
   if (d.cause === 'beaten') return 'beaten to death';
+  if (d.cause === 'bludgeon') return 'bludgeoned to death';
   return 'hacked to death';
 }
 const pending = [];
@@ -1433,6 +1461,7 @@ function frame(time) {
     if (t.stuck) { updateStuck(t); continue; }
     if (t.holster || t.held) continue;
     t.mesh.position.set(t.a.x, t.a.y, t.a.z);
+    if (t.hung && t.hangQ) { t.mesh.quaternion.copy(t.hangQ); continue; }
     t.mesh.quaternion.setFromUnitVectors(NEG_Z, tv.set(t.b.x - t.a.x, t.b.y - t.a.y, t.b.z - t.a.z).normalize());
   }
   for (let i = bubbleList.length - 1; i >= 0; i--) { const b = bubbleList[i]; b.m.position.y += b.v * dt; if (b.m.position.y > WATER_Y) { scene.remove(b.m); bubbleList.splice(i, 1); } }

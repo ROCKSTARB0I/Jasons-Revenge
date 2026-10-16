@@ -35,6 +35,8 @@ export const SPOTS = [];      // places counselors hang about: {x, z, kind}
 export const HIDES = [];      // places they run to and hide: inside cabins and the lodge
 export const WEAPON_SPOTS = {};
 export const BEDS = [];       // lower bunks: { x, z, yaw (head end), side: where to stand to get in }
+// the tool shed on the shore by the dock: a workbench and a pegboard wall of things to kill with
+export const SHED = { x: -6, z: -24.6, slots: [], lean: [] };
 // things you can wreck so nobody gets help: the phone line, their car, the power
 export const PHONE = { x: -6.9, y: 1.45, z: 25.5, stand: { x: -6.15, z: 25.5 }, cut: false, mesh: null };
 // the camp's only phone line comes in on the entrance sign; the junction box is on its left post
@@ -366,6 +368,52 @@ export function buildCamp(scene, world) {
     WEAPON_SPOTS.knife = local(3.5, 0.6);
   }
 
+  // ---- the tool shed: plank walls, a door onto the lake, a bench and a pegboard of tools, an oil lamp
+  {
+    const W = 4.4, D = 3.2, H = 2.5, door = 1.6, g = new THREE.Group(); g.position.set(SHED.x, 0, SHED.z); statics.add(g);
+    // local -z faces the water
+    box(g, M.woodDark, W + 0.3, 0.12, D + 0.3, 0, 0.06, 0);
+    box(g, M.wood, W, H, 0.1, 0, H / 2, D / 2);                                   // back wall
+    box(g, M.wood, 0.1, H, D, -W / 2, H / 2, 0); box(g, M.wood, 0.1, H, D, W / 2, H / 2, 0);
+    const side = (W - door) / 2;
+    box(g, M.wood, side, H, 0.1, -(door / 2 + side / 2), H / 2, -D / 2); box(g, M.wood, side, H, 0.1, door / 2 + side / 2, H / 2, -D / 2);
+    box(g, M.wood, door, 0.45, 0.1, 0, H - 0.22, -D / 2);
+    const roof = box(g, M.roof, W + 0.6, 0.08, D + 0.7, 0, H + 0.18, 0); roof.rotation.x = -0.12;   // single pitch, falling to the back
+    // a door hanging open off one hinge
+    const dr = box(g, M.woodDark, door * 0.95, H - 0.5, 0.05, -door / 2 - 0.7, (H - 0.5) / 2, -D / 2 - 0.6); dr.rotation.y = -1.2;
+    // the bench along the back wall, with a vise and junk on it
+    box(g, M.woodDark, W - 0.4, 0.08, 0.7, 0, 0.9, D / 2 - 0.4);
+    for (const x of [-(W / 2 - 0.35), W / 2 - 0.35]) for (const z of [D / 2 - 0.12, D / 2 - 0.68]) box(g, M.woodDark, 0.08, 0.9, 0.08, x, 0.45, z);
+    box(g, M.woodDark, W - 0.5, 0.05, 0.6, 0, 0.25, D / 2 - 0.4);   // shelf under it
+    box(g, M.metal, 0.22, 0.12, 0.16, W / 2 - 0.7, 1.0, D / 2 - 0.62); box(g, M.metal, 0.06, 0.06, 0.25, W / 2 - 0.7, 1.0, D / 2 - 0.82);   // vise
+    const can = new THREE.MeshLambertMaterial({ color: 0x6a5a2a });
+    for (let i = 0; i < 4; i++) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.17, 10), can); c.position.set(-1.4 + i * 0.24, 0.36, D / 2 - 0.3); g.add(c); }
+    box(g, new THREE.MeshLambertMaterial({ color: 0x3a2a1a }), 0.5, 0.05, 0.3, -0.9, 0.96, D / 2 - 0.45);   // a rag-covered board, stained
+    // pegboard
+    const peg = canvasTex(512, 256, (x, w, h) => {
+      x.fillStyle = '#7a5a3a'; x.fillRect(0, 0, w, h);
+      for (let yy = 8; yy < h; yy += 16) for (let xx = 8; xx < w; xx += 16) { x.fillStyle = '#2a1a0e'; x.beginPath(); x.arc(xx, yy, 2.4, 0, 7); x.fill(); }
+      x.strokeStyle = 'rgba(30,20,10,0.6)'; x.lineWidth = 3;   // painted outlines where tools belong
+      for (let i = 0; i < 8; i++) { const xx = 30 + i * 60; x.strokeRect(xx, 60, 26, 150); }
+      for (let i = 0; i < 12; i++) { const gr = x.createRadialGradient(0, 0, 0, 0, 0, 18); x.save(); x.translate(Math.random() * w, Math.random() * h); gr.addColorStop(0, 'rgba(70,4,2,0.6)'); gr.addColorStop(1, 'rgba(70,4,2,0)'); x.fillStyle = gr; x.fillRect(-18, -18, 36, 36); x.restore(); }
+    });
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.4, 1.2), new THREE.MeshLambertMaterial({ map: peg })); board.position.set(0, 1.62, D / 2 - 0.06); board.rotation.y = Math.PI; g.add(board);
+    // the lamp
+    const lampMat = new THREE.MeshBasicMaterial({ color: 0xffc070 });
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), lampMat); lamp.position.set(-W / 2 + 0.5, 1.05, D / 2 - 0.3); lamp.userData.keep = true; g.add(lamp);
+    const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.2, 10, 1, true), new THREE.MeshLambertMaterial({ color: 0xffd8a0, transparent: true, opacity: 0.4 })); glass.position.copy(lamp.position); glass.userData.keep = true; g.add(glass);
+    SHED.light = new THREE.PointLight(0xffb060, 5, 6, 1.5); SHED.light.position.set(SHED.x - W / 2 + 0.5, 1.3, SHED.z + D / 2 - 0.5); scene.add(SHED.light);
+    // walls are solid; the doorway isn't
+    const seg = (ax, az, bx, bz) => { const n = Math.ceil(Math.hypot(bx - ax, bz - az) / 0.5); for (let i = 0; i < n; i++) { const t = (i + 0.5) / n, x = SHED.x + ax + (bx - ax) * t, z = SHED.z + az + (bz - az) * t; addSolid(x - 0.3, 0, z - 0.3, x + 0.3, H, z + 0.3); } };
+    seg(-W / 2, D / 2, W / 2, D / 2); seg(-W / 2, -D / 2, -W / 2, D / 2); seg(W / 2, -D / 2, W / 2, D / 2);
+    seg(-W / 2, -D / 2, -door / 2 - 0.2, -D / 2); seg(door / 2 + 0.2, -D / 2, W / 2, -D / 2);
+    addSolid(SHED.x - W / 2 + 0.2, 0, SHED.z + D / 2 - 0.75, SHED.x + W / 2 - 0.2, 0.94, SHED.z + D / 2 - 0.05, false);
+    // where the tools hang: grip low, head up, against the pegboard
+    for (let i = 0; i < 8; i++) SHED.slots.push({ x: SHED.x - 1.65 + i * 0.47, y: 1.24, z: SHED.z + D / 2 - 0.1 });
+    SHED.lean.push({ x: SHED.x + W / 2 - 0.25, z: SHED.z + D / 2 - 0.9 }, { x: SHED.x - W / 2 + 0.25, z: SHED.z - D / 2 + 0.35 });
+    SPOTS.push({ x: SHED.x, z: SHED.z - D / 2 - 1.2, kind: 'shed' });
+  }
+
   // ---- woodpile with an axe left in the chopping block
   {
     const wx = -12, wz = 14, g = new THREE.Group(); g.position.set(wx, 0, wz); statics.add(g);
@@ -473,6 +521,7 @@ export function buildCamp(scene, world) {
     if (Math.abs(x - SIGN.x) < SIGN.half + 3 && Math.abs(z - SIGN.z) < 4) return false;
     if (Math.hypot(x - (SIGN.x - 9), z - (SIGN.z + 7)) < 2.5) return false;
     if (Math.abs(x - (CAR.x + (ROAD_END.x - CAR.x) * Math.max(0, Math.min(1, (z - CAR.z) / (120 - CAR.z))))) < 3 && z > CAR.z - 6) return false;   // the road
+    if (Math.abs(x - SHED.x) < 4.5 && Math.abs(z - SHED.z) < 4) return false;
     if (Math.hypot(x + 12, z - 14) < 3 || Math.hypot(x - 37, z - 26) < 7 || Math.hypot(x + 5, z - 8) < 1.5) return false;
     for (const t of trees) if ((t.x - x) ** 2 + (t.z - z) ** 2 < 4) return false;
     return true;

@@ -2,8 +2,8 @@
 // buildings (from the kit in build.js), the woods, the fence, and a walk grid the
 // counselors find their way round with.
 import * as THREE from '../vendor/three.module.js';
-import { makeKit, kitMaterials } from './build.js?v=15';
-import { areaById } from './areas.js?v=15';
+import { makeKit, kitMaterials } from './build.js?v=16';
+import { areaById } from './areas.js?v=16';
 
 export const BOUND = 58;                 // the woods close in past this
 let SHORE = x => -30 + Math.sin(x * 0.07) * 3 + Math.sin(x * 0.19 + 1) * 1.2;

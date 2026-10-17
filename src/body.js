@@ -4,10 +4,10 @@
 // limbs, torsos and heads come apart along the line of the cut, capped with
 // flesh and bone, and what's inside falls out.
 import * as THREE from '../vendor/three.module.js';
-import { segDist } from './sim.js?v=15';
-import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=15';
-import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=15';
-import { sliceGeometry } from './slice.js?v=15';
+import { segDist } from './sim.js?v=16';
+import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=16';
+import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=16';
+import { sliceGeometry } from './slice.js?v=16';
 
 const V = THREE.Vector3, R = Math.random;
 const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), mb = new THREE.Matrix4(), UP = new V(0, 1, 0);
@@ -299,7 +299,7 @@ export class Human {
   // Build the pose in the body's own frame, then place it in the world.
   computePose(dt) {
     if (this.pose === 'sleep') return this.sleepPose();
-    const A = this.anim, s = this.s, sp = this.speed, run = Math.min(1, Math.max(0, (sp - 1.6) / 1.6)), walk = Math.min(1, sp / 1.0);
+    const A = this.anim, s = this.s, sp = this.speed, run = Math.min(1, Math.max(0, (sp - (this.menace ? 3.0 : 1.6)) / 1.6)), walk = Math.min(1, sp / 1.0);   // Jason walks, hard and fast; he only runs when he charges
     const T = this.time, pose = this.pose;
     const crouchT = pose === 'hide' || pose === 'cower' ? 1 : 0;
     this.crouchS = (this.crouchS ?? crouchT) + (crouchT - (this.crouchS ?? crouchT)) * Math.min(1, dt * (this.menace ? 1.7 : 9));   // Jason rises slowly

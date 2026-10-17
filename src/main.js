@@ -1,18 +1,19 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=15';
-import { Human } from './body.js?v=15';
-import { sd, smin, ssub, mesh } from './sculpt.js?v=15';
-import { Blood } from './blood.js?v=15';
-import { sfx } from './sfx.js?v=15';
-import { score } from './score.js?v=15';
-import { Rain } from './rain.js?v=15';
-import { AREAS } from './areas.js?v=15';
-import { WINDMILL } from './camp.js?v=15';
-import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, SURFACES, DOCK, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=15';
-import { buildHand, makeBody, poseBody, skinMat, cleanSkinMat, flannelMat } from './jason.js?v=15';
+import { Sim, STEP, segDist } from './sim.js?v=16';
+import { Human } from './body.js?v=16';
+import { sd, smin, ssub, mesh } from './sculpt.js?v=16';
+import { Blood } from './blood.js?v=16';
+import { sfx } from './sfx.js?v=16';
+import { score } from './score.js?v=16';
+import { Rain } from './rain.js?v=16';
+import { AREAS } from './areas.js?v=16';
+import { WINDMILL } from './camp.js?v=16';
+import { walkable } from './camp.js?v=16';
+import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, SURFACES, DOCK, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=16';
+import { buildHand, makeBody, poseBody, skinMat, cleanSkinMat, flannelMat } from './jason.js?v=16';
 const glove = side => new URLSearchParams(location.search).get('mode') === 'counselor' ? buildHand(side, cleanSkinMat, true) : buildHand(side);
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=15';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=16';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -947,7 +948,7 @@ function updateCounselors(dt) {
         d.goal = null; d.face = -Math.PI / 2; a.callT += dt;
         if (Math.random() < dt * 0.4) say(d, 'help');
         if (PHONE.cut) { chooseFlight(d); break; }
-        if (a.callT > 9) { RUN.calledAt = RUN.t; RUN.policeAt = RUN.t + Math.max(45, 85 - RUN.night * 8); caption(`${d.name} got through to the police.`, 4); score.stinger(); chooseFlight(d); }
+        if (a.callT > 9) { RUN.calledAt = RUN.t; RUN.policeAt = RUN.t + (HUNT ? 140 : Math.max(45, 85 - RUN.night * 8)); caption(`${d.name} got through to the police.`, 4); score.stinger(); chooseFlight(d); }
         break;
       case 'toCar':
         if (RUN.carGone || RUN.carHp <= 0) { if (RUN.carHp <= 0) say(d, 'plead'); chooseFlight(d); break; }
@@ -1081,7 +1082,7 @@ function spawnCop(x, z) {
   const d = new Human(scene, sim, blood, { x, z, yaw: Math.PI, scale: rand(1.0, 1.06), skin, hair: 0x1a1410, look: { skin, hair: 0x1a1410, eyes: 0x3a2a1a, beard: pick([0, 1, 2]), seed: Math.floor(Math.random() * 1e6) },
     shirt: 0x4a5a72, print: null, pants: 0x1c2230, shorts: false, shoes: 0x0e0e0e, uniform: true, hp: 130, kind: 'cop' });
   d.name = 'OFFICER'; d.police = true;
-  d.cop = { shootT: rand(1, 2), last: headPos().clone(), seeT: 0, acc: 0, route: null, routeT: 0 };
+  d.cop = { shootT: rand(1, 2), last: headPos().clone(), seeT: 0, acc: 0, route: null, routeT: 0, post: { x: x + rand(-1.5, 1.5), z: FENCE - rand(2.5, 4.5) } };
   const gun = new THREE.Group(), gm = WM.black;
   const bx = (w, h, dd, gx, gy, gz) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, dd), gm); m.position.set(gx, gy, gz); gun.add(m); };
   bx(0.025, 0.035, 0.16, 0, 0.03, -0.08); bx(0.03, 0.09, 0.035, 0, -0.02, 0.02);
@@ -1110,6 +1111,7 @@ function updatePolice(dt) {
     const me = d.root, dist = Math.hypot(J.x - me.x, J.z - me.z);
     if ((c.seeT -= dt) <= 0) { c.seeT = 0.2; c.see = dist < 26 && sightClear(d.p.head.x, d.p.head.z, J.x, J.z); if (c.see) c.last.copy(J); }
     d.look = c.see ? { x: J.x, z: J.z } : null;
+    if (HUNT && !(c.see && dist < 13)) { d.pose = 'idle'; d.wantSpeed = 1.2; d.look = { x: J.x, z: J.z }; if (goTo(d, c.post?.x ?? GATE.x, c.post?.z ?? FENCE - 3, dt)) d.goal = null; continue; }
     if (c.see && dist < 22) {
       d.pose = 'aim'; d.goal = dist > 9 ? { x: J.x, z: J.z } : null; d.wantSpeed = 1.2; d.face = Math.atan2(J.x - me.x, J.z - me.z);
       if ((c.shootT -= dt) <= 0) {
@@ -1118,7 +1120,7 @@ function updatePolice(dt) {
         const from = g.flash.getWorldPosition(new V3());
         g.flash.visible = true; g.t = 0.05;
         sfx.gunshot(from);
-        const hitP = 0.55 * c.acc * Math.max(0.2, 1 - dist / 30) * (crouched() ? 0.75 : 1) * (P.moveSpeed > 3 ? 0.7 : 1);
+        const hitP = (HUNT ? 0.25 : 0.55) * c.acc * Math.max(0.2, 1 - dist / 30) * (crouched() ? 0.75 : 1) * (P.moveSpeed > 3 ? 0.7 : 1);
         const hit = Math.random() < hitP;
         tracer(from, tv3.copy(J).add(tv.set(rand(-1, 1), rand(-0.8, 0.5), rand(-1, 1)).multiplyScalar(hit ? 0.2 : 1.2)));
         if (hit) hurtJason(rand(7, 11)); else sfx.whiz();
@@ -1130,7 +1132,7 @@ function updatePolice(dt) {
   }
 }
 function hurtJason(n) {
-  if (HUNT) { if (JN && JN.mode === 'anim' && Math.random() < 0.4) knockdown(2.5, null); return; }
+  if (HUNT) { if (JN && JN.mode === 'anim') { JN.ai.state = JN.ai.state === 'kill' ? 'kill' : 'stagger'; JN.ai.stun = Math.max(JN.ai.stun, 0.5); JN.flinch = { t: 0.4, k: 0.06, x: 0, z: 0 }; } return; }
   if (P.down || RUN.over) return;
   P.hp -= n; P.hurtT = 0.4; P.lastHit = RUN.t;
   sfx.impact(); for (const h of hands()) pulse(h, 1, 120);
@@ -1391,7 +1393,7 @@ function updateDoors(dt) {
   if (JN) acts.push(JN.p.pelvis);
   camp.updateDoors(dt, acts);
   for (const dr of DOORS) {
-    if (dr.target && !dr.creaked && dr.open > 0.04) { dr.creaked = true; sfx.door(tv3.set(dr.x, 1, dr.z)); }
+    if (dr.target && !dr.creaked && dr.open > 0.04) { dr.creaked = true; sfx.door(tv3.set(dr.x, 1, dr.z)); if (HUNT && Math.hypot(headPos().x - dr.x, headPos().z - dr.z) < 2) noise(tv3.set(dr.x, 1, dr.z), 8); }
     if (!dr.target && dr.open < 0.04) dr.creaked = false;
     if (dr.slam) { dr.slam = false; sfx.thud(tv3.set(dr.x, 1, dr.z)); }
   }
@@ -1582,8 +1584,9 @@ function spotEye(sp) {
 const crackMat = new THREE.MeshBasicMaterial({ color: 0x050302, depthTest: false, depthWrite: false, fog: false });
 const crack = [0, 1].map(() => { const m = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6), crackMat); m.renderOrder = 1004; m.visible = false; camera.add(m); return m; });
 function updateCrack(peek) {
+  for (const m of crack) m.visible = false;
+  return;   // the doors themselves have the crack in them; no overlay
   const sp = P.hidden;
-  for (const m of crack) m.visible = !!sp;
   if (!sp) return;
   const flat = sp.kind === 'underbed', gap = (sp.kind === 'hay' ? 0.018 : 0.0035) + peek * (sp.kind === 'hay' ? 0.05 : 0.016);
   crack.forEach((m, i) => {
@@ -1667,6 +1670,8 @@ const itemMat = { red: new THREE.MeshLambertMaterial({ color: 0x9a1a14 }), black
 function itemMesh(kind) {
   const g = new THREE.Group(), b = (mat, w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); g.add(m); return m; };
   if (kind.endsWith('Keys') || kind === 'gateKey') {
+    const tag = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.002, 0.07), itemMat.white); tag.position.set(-0.04, 0.003, 0.01); tag.rotation.y = 0.3; g.add(tag);
+    g.scale.setScalar(1.7);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.003, 4, 12), itemMat.metal); ring.rotation.x = Math.PI / 2; ring.position.y = 0.004; g.add(ring);
     for (let i = 0; i < (kind === 'gateKey' ? 1 : 2); i++) { const k = b(new THREE.MeshLambertMaterial({ color: ITEM[kind].col }), 0.012, 0.003, 0.05, 0.02 + i * 0.012, 0.004, 0.03); k.rotation.y = i * 0.4; }
     if (kind === 'carKeys') b(itemMat.black, 0.022, 0.008, 0.03, -0.02, 0.006, -0.02);
@@ -1704,16 +1709,31 @@ function give(k, n = 1) { H.items.set(k, (H.items.get(k) ?? 0) + n); }
 function take(k) { H.items.set(k, Math.max(0, (H.items.get(k) ?? 0) - 1)); }
 // what you're reaching for: in VR your hand, on desktop what's in front of you
 function reachPoint(h) { return inVR ? h.pos : tv3.copy(headPos()).add(tv.copy(NEG_Z).applyQuaternion(camera.getWorldQuaternion(tq)).multiplyScalar(0.9)); }
+// no reaching through walls (stopping a little short: things on a table against a wall count as reachable)
+function seeTo(o, it) { const dx = it.x - o.x, dz = it.z - o.z, d = Math.hypot(dx, dz); if (d < 0.6) return true; const k = (d - 0.45) / d; return sightClear(o.x, o.z, o.x + dx * k, o.z + dz * k); }
 function nearestItem(h) {
   let best = null, bd = 1e9;
-  if (inVR) { for (const it of items) { const d = Math.hypot(it.x - h.pos.x, it.y - h.pos.y, it.z - h.pos.z); if (d < 0.35 && d < bd) { bd = d; best = it; } } return best; }
+  if (inVR) {
+    // in reach of your hand...
+    for (const it of items) { const d = Math.hypot(it.x - h.pos.x, it.y - h.pos.y, it.z - h.pos.z); if (d < 0.5 && d < bd) { bd = d; best = it; } }
+    if (best) return best;
+    // ...or what you're pointing at, a few steps off (it comes to your hand)
+    const f = tv.copy(NEG_Z).applyQuaternion(h.quat);
+    for (const it of items) {
+      const dx = it.x - h.pos.x, dy = it.y - h.pos.y, dz = it.z - h.pos.z, along = dx * f.x + dy * f.y + dz * f.z;
+      if (along < 0.2 || along > 3.5) continue;
+      const off = Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - along * along));
+      if (off < 0.18 + along * 0.08 && off + along * 0.05 < bd && seeTo(h.pos, it)) { bd = off + along * 0.05; best = it; }
+    }
+    return best;
+  }
   // desktop: anything close to where you're looking, within arm's reach
   const o = headPos(), f = tv.copy(NEG_Z).applyQuaternion(camera.getWorldQuaternion(tq));
   for (const it of items) {
     const dx = it.x - o.x, dy = it.y - o.y, dz = it.z - o.z, along = dx * f.x + dy * f.y + dz * f.z;
-    if (along < 0.1 || along > 2.4) continue;
+    if (along < 0.1 || along > 3.2) continue;
     const off = Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - along * along));
-    if (off < 0.25 + along * 0.15 && off + along * 0.1 < bd) { bd = off + along * 0.1; best = it; }
+    if (off < 0.3 + along * 0.12 && off + along * 0.1 < bd && seeTo(o, it)) { bd = off + along * 0.1; best = it; }
   }
   return best;
 }
@@ -1782,7 +1802,7 @@ function interact(h) {
   if (near(PHONE.stand.x, PHONE.stand.z, 1.4)) {
     if (PHONE.cut) { caption('The line\'s dead.', 2.5, 'He cut it. The junction box is on the sign by the road.'); return true; }
     if (RUN.calledAt >= 0) { caption('They\'re coming.', 2); return true; }
-    startTask('Calling the police', 8, PHONE.stand, () => { RUN.calledAt = RUN.t; RUN.policeAt = RUN.t + 70; caption('The police are coming.', 4, 'Stay alive. Get to them at the gate.'); score.stinger(); }, () => sfx.dial(PHONE)); return true;
+    startTask('Calling the police', 8, PHONE.stand, () => { RUN.calledAt = RUN.t; RUN.policeAt = RUN.t + 140; caption('The police are coming.', 4, 'A couple of minutes, they said. Stay alive, then get to them at the gate.'); score.stinger(); }, () => sfx.dial(PHONE)); return true;
   }
   if (PHONE.cut && near(JUNCTION.x, JUNCTION.z - 0.5, 1.8)) {
     if (!has('toolkit')) { caption('The wires are cut.', 2.5, 'You need a toolkit.'); return true; }
@@ -1813,7 +1833,7 @@ function dropGun(h) {
 function enterHide(sp) {
   if (H.task) H.task = null;
   for (const h of hands()) if (h.held) drop(h);
-  P.hidden = sp; sp.occ = 'player'; flingSpot(sp, 0.45); P.peek = 0;
+  P.hidden = sp; sp.occ = 'player'; flingSpot(sp, 0.45); P.peek = 0; P.hideSet = false;
   // did he see you get in?
   if (JN && hunterSees(headPos())) JN.ai.sawHide = sp;
   const e = spotEye(sp);
@@ -1835,9 +1855,9 @@ function updatePlayerHide(dt) {
   const e = spotEye(sp), f = spotFacing(sp), dir = sp.kind === 'hay' ? { x: -f.x, z: -f.z } : f;
   let lean;
   if (inVR) {
-    const h = headPos(); lean = Math.max(0, Math.min(0.14, (h.x - e.x) * dir.x + (h.z - e.z) * dir.z));
-    rig.position.x += e.x + dir.x * lean - h.x; rig.position.z += e.z + dir.z * lean - h.z; rig.position.y += e.y - h.y + (sp.kind === 'hay' ? lean * 2 : 0);
-    lean /= 0.14;
+    if (!P.hideSet) { const h = headPos(); rig.position.x += e.x - h.x; rig.position.z += e.z - h.z; rig.position.y += e.y - h.y; P.hideSet = true; }
+    const h = headPos(); lean = 0;
+    if (Math.hypot(h.x - e.x, h.z - e.z) > 0.75) { leaveHide(); return; }
   } else {
     P.peek = Math.max(0, Math.min(1, (P.peek ?? 0) + (keys.KeyW ? dt * 3 : -dt * 3))); lean = P.peek;
     camera.position.set(0, 0, 0); rig.position.set(e.x + dir.x * lean * 0.12, e.y + (sp.kind === 'hay' ? lean * 0.3 : 0), e.z + dir.z * lean * 0.12);
@@ -2229,11 +2249,14 @@ function updateHunter(dt) {
   const pd = Math.hypot(P0.x - me.x, P0.z - me.z);
   if ((a.breathT -= dt) <= 0) { a.breathT = rand(2.5, 4.5); if (pd < 9) sfx.breath(J.p.head, false); }
   if (a.stun > 0) { a.stun -= dt; J.goal = null; J.speed *= 0.8; return; }
+  if (a.state === 'stagger') { a.state = RUN.t - a.lastSeenT < 4 ? 'chase' : 'search'; a.wait = 0; a.checks = []; a.checked = false; }
   if (a.stare > 0) { a.stare -= dt; J.goal = null; J.pose = 'idle'; J.tilt = 0.7; if (a.lastSeen) J.face = Math.atan2(a.lastSeen.x - me.x, a.lastSeen.z - me.z); return; }
   // ---- what he can see
   const playerVisible = !H.dead && !H.won && !P.hidden && hunterSees(P0, H.flash);
   if (playerVisible) {
-    if (!a.sawPlayer || RUN.t - a.lastSeenT > 12) { a.sawPlayer = true; if (pd > 7) { a.stare = rand(0.9, 1.6); score.stinger(); } }
+    if (!a.sawPlayer || RUN.t - a.lastSeenT > 12) { a.sawPlayer = true; if (pd > 9) { a.stare = rand(1.4, 2.3); J.tilt = 0.7; } score.stinger(); if (RUN.t - (H.stingT ?? -99) > 45) { H.stingT = RUN.t; sting(); } }
+    if (a.prevP && dt > 0) { a.vel = { x: (P0.x - a.prevP.x) / dt, z: (P0.z - a.prevP.z) / dt }; }
+    a.prevP = { x: P0.x, z: P0.z };
     a.lastSeen = { x: P0.x, z: P0.z }; a.lastSeenT = RUN.t; a.target = 'player';
     if (!['attack', 'kill', 'objective'].includes(a.state) || (a.state === 'objective' && pd < 14)) a.state = 'chase';
   }
@@ -2251,6 +2274,7 @@ function updateHunter(dt) {
       // jobs first: the phone line, then the power
       if (!PHONE.cut && RUN.t > a.phoneAt) { a.state = 'objective'; a.job = 'phone'; break; }
       if (GENERATOR.on && RUN.t > a.powerAt) { a.state = 'objective'; a.job = 'power'; break; }
+      if (RUN.policeHere && Math.random() < dt * 0.3) { a.patrol = { x: GATE.x + rand(-6, 6), z: FENCE - rand(8, 14) }; a.patrolT = 30; }
       if (a.heard && RUN.t - a.heard.t < 8) { a.lastSeen = { x: a.heard.x, z: a.heard.z }; a.heard = null; a.state = 'search'; a.wait = 0; a.checks = []; break; }
       // guarding the way out once you've got what you need
       if (has('carKeys') && !RUN.carGone && Math.hypot(P0.x - CAR.x, P0.z - CAR.z) < 30 && Math.random() < dt * 0.2) { a.patrol = { x: CAR.door.x + rand(-3, 3), z: CAR.door.z + rand(-3, 3) }; a.patrolT = 25; }
@@ -2279,16 +2303,24 @@ function updateHunter(dt) {
     case 'chase': {
       if (!tgtPos || (a.target !== 'player' && (!a.target.alive || a.target.hiddenIn))) { a.state = 'search'; a.wait = 0; break; }
       const d = Math.hypot(tgtPos.x - me.x, tgtPos.z - me.z), sees = a.target === 'player' ? playerVisible : hunterSees(tgtPos);
-      if (!sees && RUN.t - a.lastSeenT > 1.5 && a.target === 'player') { a.state = 'search'; a.wait = 0; a.checks = []; break; }
+      if (!sees && RUN.t - a.lastSeenT > 1.5 && a.target === 'player') {
+        // lost you: he heads for where you were going
+        if (a.vel) { const sp = Math.min(5, Math.hypot(a.vel.x, a.vel.z)), k = sp > 0.5 ? 3.2 : 0; const gx = a.lastSeen.x + a.vel.x / (sp || 1) * sp * k * 0.7, gz = a.lastSeen.z + a.vel.z / (sp || 1) * sp * k * 0.7; if (walkable(gx, gz)) a.lastSeen = { x: gx, z: gz }; }
+        a.state = 'search'; a.wait = 0; a.checks = []; a.checked = false; a.prevP = null; break;
+      }
       J.pose = 'idle';
       // he walks. Then, when you're close enough, he's suddenly much closer.
       a.lungeCd -= dt;
-      if (a.lungeT > 0) { a.lungeT -= dt; J.wantSpeed = 4.4; }
-      else if (sees && d > 2.4 && d < 8 && a.lungeCd <= 0) { a.lungeT = rand(0.9, 1.3); a.lungeCd = rand(5, 8); sfx.breath(J.p.head, false); }
-      else J.wantSpeed = d > 14 ? 2.1 : 1.6;
+      if (a.lungeT > 0) { a.lungeT -= dt; J.wantSpeed = 5.0; }
+      else if (sees && d > 2.4 && d < 12 && a.lungeCd <= 0) { a.lungeT = rand(1.2, 1.8); a.lungeCd = rand(4, 6); sfx.breath(J.p.head, false); }
+      else J.wantSpeed = d > 14 ? 2.6 : 2.2;
       J.goal = sees && d < 6 ? { x: tgtPos.x, z: tgtPos.z } : null;
       if (!J.goal) goTo(J, tgtPos.x, tgtPos.z, dt);
       J.look = { x: tgtPos.x, z: tgtPos.z };
+      for (const dr of DOORS) if (!dr.broken && dr.open < 0.6 && Math.hypot(dr.x - me.x, dr.z - me.z) < 1.4) {
+        dr.broken = true; dr.open = 1; dr.target = 1; dr.hinge.rotation.y = dr.base + dr.swing * 1.12; dr.hinge.rotation.z = rand(-0.12, 0.12); dr.box.min.y = -10; dr.box.max.y = -9;
+        const at = tv3.set(dr.x, 1.1, dr.z); sfx.crunch(at); sfx.thud(at); sfx.clank(at); noise(at, 18); hitStop(0.04);
+      }
       if (a.target === 'player' && d < 1.7 && sees) { a.state = 'attack'; a.atkT = 0; }
       else if (a.target !== 'player' && d < 1.25) grabVictim(a.target);
       break;
@@ -2388,9 +2420,12 @@ function updateHunt(dt) {
   updateMyFlash();
   if (!HUNT || !started) return;
   if (!paused) { updateHunter(dt); updateTask(dt); checkEscapes(); }
+  if (!paused && !H.dead && P.stamina < 35 && Math.random() < dt * (1.6 - P.stamina / 30)) { const hp = headPos(); sfx.breath(hp, false); noise(hp, 6); }
   updatePlayerHide(dt);
   if (JN) JN.sync();
-  for (const it of items) it.glint.scale.setScalar(0.08 + 0.06 * Math.max(0, Math.sin(RUN.t * 2 + it.x)) ** 4);
+  const aimed = !P.hidden && !H.dead ? hands().map(h => nearestItem(h)).find(Boolean) : null;
+  for (const it of items) it.glint.scale.setScalar(it === aimed ? 0.32 + 0.05 * Math.sin(RUN.t * 8) : 0.08 + 0.06 * Math.max(0, Math.sin(RUN.t * 2 + it.x)) ** 4);
+  if (aimed !== H.aimed) { H.aimed = aimed; if (aimed) for (const h of hands()) pulse(h, 0.15, 15); const el = $('hint'); if (el) { el.hidden = !aimed || inVR; if (aimed) el.textContent = `E / right-click — pick up ${ITEM[aimed.kind].name}`; } }
   for (const h of hands()) { if (h.gun && h.trigger && !h.trigPrev) fireGun(h); h.trigPrev = h.trigger; }
   updateScare(dt);
   boat.position.y = WATER_Y + Math.sin(RUN.t * 1.3) * 0.03;

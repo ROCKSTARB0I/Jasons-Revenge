@@ -1,14 +1,14 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=8';
-import { Human } from './body.js?v=8';
-import { Blood } from './blood.js?v=8';
-import { sfx } from './sfx.js?v=8';
-import { score } from './score.js?v=8';
-import { Rain } from './rain.js?v=8';
-import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=8';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=8';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=8';
+import { Sim, STEP, segDist } from './sim.js?v=9';
+import { Human } from './body.js?v=9';
+import { Blood } from './blood.js?v=9';
+import { sfx } from './sfx.js?v=9';
+import { score } from './score.js?v=9';
+import { Rain } from './rain.js?v=9';
+import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=9';
+import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=9';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=9';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -705,8 +705,19 @@ function updateFlashlight(d) {
   }
   if (f.userData.dropped) return;
   const dir = f.userData.dir, pool = f.userData.pool;
-  if (dir.y < -0.05) { const t = Math.min(12, (f.position.y - groundAt(f.position.x, f.position.z)) / -dir.y); pool.position.copy(f.position).addScaledVector(dir, t); pool.position.y = groundAt(pool.position.x, pool.position.z) + 0.02; pool.scale.setScalar(0.4 + t * 0.17); pool.visible = true; }
+  // the beam stops at whatever it hits first: a wall, a tree, the ground
+  const { dist, ground } = beamHit(f.position, dir);
+  f.userData.beam.scale.setScalar(Math.max(0.05, dist / 14));
+  if (ground) { pool.position.copy(f.position).addScaledVector(dir, dist); pool.position.y = groundAt(pool.position.x, pool.position.z) + 0.02; pool.scale.setScalar(0.4 + dist * 0.17); pool.visible = true; }
   else pool.visible = false;
+}
+function beamHit(o, dir) {
+  for (let t = 0.2; t < 14; t += 0.2) {
+    const x = o.x + dir.x * t, y = o.y + dir.y * t, z = o.z + dir.z * t;
+    if (y <= groundAt(x, z)) return { dist: t, ground: true };
+    for (const b of sim.near(x, z)) if (b.max.y > 0.5 && x > b.min.x && x < b.max.x && z > b.min.z && z < b.max.z && y > b.min.y && y < b.max.y) return { dist: t, ground: false };
+  }
+  return { dist: 14, ground: false };
 }
 // ---- the brain
 function setState(d, st, at = null) {

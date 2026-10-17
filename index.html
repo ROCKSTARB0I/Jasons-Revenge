@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=IM+Fell+English+SC&family=Special+Elite&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <canvas id="view" tabindex="0"></canvas>
@@ -41,14 +41,15 @@
   </div>
   <div class="roster">
     <div class="paper">
-      <div class="head"><span>CAMP CRYSTAL LAKE</span><span>STAFF ROSTER · 1980</span></div>
-      <ol class="names">
-        <li><s>Annie</s> <em>cook</em></li>
-        <li><s>Ned</s> <em>waterfront</em></li>
-        <li>Marcie <em>arts &amp; crafts</em></li>
-        <li><s>Jack</s> <em>archery</em></li>
-        <li>Brenda <em>nature</em></li>
-      </ol>
+      <div class="head"><span id="rosterHead">CAMP CRYSTAL LAKE</span><span id="rosterYear">STAFF ROSTER · 1980</span></div>
+      <p class="label">Where tonight</p>
+      <div class="areas" id="areas"></div>
+      <p class="blurb" id="areaBlurb"></p>
+      <div class="modes">
+        <button id="modeJason" class="mode on">Play as Jason</button>
+        <button id="modeCounselor" class="mode" disabled title="Coming in the next update">Play as a counselor <small>coming soon</small></button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="castToggle"> <span>Movie characters</span> <small id="castNames"></small></label>
       <div class="actions">
         <button id="enterVR">Enter VR</button>
         <button id="playDesktop">Play on desktop</button>
@@ -67,6 +68,6 @@
   <p class="warn">Contains graphic violence and gore.</p>
 </div>
 
-<script type="module" src="src/main.js?v=12"></script>
+<script type="module" src="src/main.js?v=13"></script>
 </body>
 </html>

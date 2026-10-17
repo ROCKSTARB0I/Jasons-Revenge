@@ -58,3 +58,21 @@ h1.logo span { display: block; color: #d4160b;
   text-shadow: 0 -1px 0 #ff6a4a, 1px 1px 0 #8a0602, 2px 2px 0 #7a0402, 3px 3px 0 #640202, 4px 4px 0 #4a0000, 5px 5px 0 #340000, 6px 8px 14px rgba(0,0,0,0.9), 0 0 28px rgba(200,10,0,0.35); }
 h1.logo span + span { margin-left: 0.5em; font-size: 0.86em; }
 h1.logo .cracks { position: absolute; inset: -4% -2%; width: 104%; height: 108%; pointer-events: none; }
+
+/* where tonight: the six places, who you play, who's there */
+.label { margin: 4px 0 6px; font-size: 12px; letter-spacing: 0.14em; color: #6a5e4a; text-transform: uppercase; }
+.areas { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-bottom: 6px; }
+.areas button { font-family: "Special Elite", monospace; font-size: 15px; text-align: left; background: none; border: none; border-bottom: 1px dashed rgba(42,36,28,0.35); color: #1e1a14; padding: 5px 2px; line-height: 1.15; }
+.areas button small { display: block; font-size: 10px; color: #7a6e5a; letter-spacing: 0.04em; }
+.areas button:hover { background: rgba(122,12,6,0.1); }
+.areas button.on { color: #6a0a04; background: linear-gradient(transparent 70%, rgba(122,12,6,0.18) 70%); }
+.areas button.on::after { content: " ✕"; color: #7a0c06; }
+.blurb { font-size: 12.5px; line-height: 1.45; color: #3a3226; margin: 4px 0 10px; min-height: 36px; }
+.modes { display: flex; gap: 8px; margin-bottom: 8px; }
+.mode { flex: 1; font-family: "Special Elite", monospace; font-size: 14px; background: none; border: 1px solid rgba(42,36,28,0.45); color: #1e1a14; padding: 6px 4px; }
+.mode.on { border-color: #7a0c06; color: #6a0a04; background: rgba(122,12,6,0.1); }
+.mode small { display: block; font-size: 10px; color: #7a6e5a; }
+.mode:disabled { opacity: 0.55; cursor: default; }
+.toggle { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 14px; margin-bottom: 10px; cursor: pointer; }
+.toggle input { accent-color: #7a0c06; }
+.toggle small { width: 100%; font-size: 11px; color: #6a5e4a; padding-left: 22px; }

@@ -225,6 +225,7 @@ export const sfx = {
   gunshot(pos) { noise(0.35, 1.3, 3500, 200, 'lowpass', pos); tone('sine', 160, 40, 0.3, 1.0, pos); noise(1.6, 0.2, 800, 100, 'lowpass', pos, 0.15); },
   whiz() { tone('sine', 2200, 900, 0.12, 0.08); },
   heartbeat() { for (let i = 0; i < 5; i++) { tone('sine', 60, 40, 0.12, 0.6, null, i * 0.9); tone('sine', 55, 38, 0.14, 0.45, null, i * 0.9 + 0.22); } },
+  whoosh(pos) { noise(0.35, 0.25, 900, 300, 'bandpass', pos, 0, 2); },
   draw() { noise(0.3, 0.3, 6500, 2500, 'bandpass', null, 0, 2); },
   holster() { noise(0.12, 0.2, 2000, 800, 'bandpass'); tone('sine', 300, 200, 0.05, 0.1); },
   dial(pos) { for (let i = 0; i < 7; i++) tone('square', 900, 900, 0.05, 0.05, pos, i * 0.35); },

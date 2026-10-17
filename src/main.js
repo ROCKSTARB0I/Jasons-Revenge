@@ -1,14 +1,14 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=9';
-import { Human } from './body.js?v=9';
-import { Blood } from './blood.js?v=9';
-import { sfx } from './sfx.js?v=9';
-import { score } from './score.js?v=9';
-import { Rain } from './rain.js?v=9';
-import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=9';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=9';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=9';
+import { Sim, STEP, segDist } from './sim.js?v=10';
+import { Human } from './body.js?v=10';
+import { Blood } from './blood.js?v=10';
+import { sfx } from './sfx.js?v=10';
+import { score } from './score.js?v=10';
+import { Rain } from './rain.js?v=10';
+import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=10';
+import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=10';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=10';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -178,11 +178,11 @@ const glintMat = new THREE.SpriteMaterial({ color: 0xcfd8e8, transparent: true, 
 function updateGlints(t) {
   for (const tool of tools) {
     if (!tool.glint) { tool.glint = new THREE.Sprite(glintMat); tool.glint.scale.setScalar(0.22); scene.add(tool.glint); }
-    const free = !tool.held && !tool.holster && !tool.stuck && !tool.hung;
+    const free = !tool.held && !tool.holster && !tool.stuck && !tool.pull && (!tool.hung || vrHands.some(h => h.aim === tool));
     tool.glint.visible = free;
     if (!free) continue;
     tool.glint.position.set(tool.a.x + (tool.b.x - tool.a.x) * 0.55, tool.a.y + (tool.b.y - tool.a.y) * 0.55 + 0.04, tool.a.z + (tool.b.z - tool.a.z) * 0.55);
-    tool.glint.scale.setScalar(0.2 + 0.18 * Math.max(0, Math.sin(t * 1.7 + tool.a.x)) ** 4 + (P.sense > 0 ? 0.3 : 0));
+    tool.glint.scale.setScalar(0.2 + 0.18 * Math.max(0, Math.sin(t * 1.7 + tool.a.x)) ** 4 + (P.sense > 0 ? 0.3 : 0) + (vrHands.some(h => h.aim === tool) ? 0.35 + 0.1 * Math.sin(t * 9) : 0));
   }
 }
 
@@ -218,14 +218,12 @@ function grab(h) {
     const dd = near(p.x, p.y, p.z, p.r) + (p.tag === 'neck' ? -0.05 : 0);
     if (dd < bd - 0.04) { bd = dd + 0.04; best = { type: 'point', p, d }; }
   }
-  if (!best) return;
+  if (!best) { if (!h.pulling) { const far = farTool(h); if (far) startPull(h, far); } return; }
   h.held = best;
   if (best.type === 'support') { const t = best.tool; t.support = h; t.supportAhead = tv.subVectors(h.pos, t.held.pos).dot(tv2.set(t.b.x - t.a.x, t.b.y - t.a.y, t.b.z - t.a.z)) > 0; pulse(h, 0.4, 40); return; }
   if (best.type === 'tool') {
     const t = best.tool;
-    if (t.stuck) { const d = t.stuck.d; blood.spray(t.b, tv.set(t.a.x - t.b.x, t.a.y - t.b.y, t.a.z - t.b.z).normalize(), 18, 2.5, 0.6); d.bleed += 4; t.stuck = null; sfx.slurp(t.b); sfx.squelch(t.b, 0.6); bloody(0.1); }
-    if (t.wallPin) { const w = t.wallPin; w.p.hand = null; w.p.locked = false; w.d.held = Math.max(0, w.d.held - 1); t.wallPin = null; sfx.slurp(t.b); sfx.squelch(t.b, 0.7); blood.spray(t.b, UP, 15, 2, 0.8); }
-    if (t.planted) { t.planted = false; t.hung = false; sfx.thud(t.a); }
+    unstick(t);
     t.held = h; t.a.locked = t.b.locked = true; h.hasTip = false;
   } else {
     const { p, d } = best;
@@ -238,6 +236,52 @@ function grab(h) {
     if (d.bleed > 3 || !d.alive) bloody(0.08);
   }
   pulse(h, 0.5, 40);
+}
+// pull a weapon out of whatever it's in (a body, a wall, the ground, the pegboard)
+function unstick(t) {
+  if (t.stuck) { const d = t.stuck.d; blood.spray(t.b, tv.set(t.a.x - t.b.x, t.a.y - t.b.y, t.a.z - t.b.z).normalize(), 18, 2.5, 0.6); d.bleed += 4; t.stuck = null; sfx.slurp(t.b); sfx.squelch(t.b, 0.6); bloody(0.1); }
+  if (t.wallPin) { const w = t.wallPin; w.p.hand = null; w.p.locked = false; w.d.held = Math.max(0, w.d.held - 1); t.wallPin = null; sfx.slurp(t.b); sfx.squelch(t.b, 0.7); blood.spray(t.b, UP, 15, 2, 0.8); }
+  if (t.planted) { t.planted = false; t.hung = false; sfx.thud(t.a); }
+}
+// point at a weapon out of reach and squeeze: it flies into your hand
+const FAR_REACH = 3;
+function farTool(h) {
+  const from = inVR ? h.pos : headPos(), dir = tv3.copy(NEG_Z).applyQuaternion(inVR ? h.quat : camera.getWorldQuaternion(tq2));
+  let best = null, bs = Infinity;
+  for (const t of tools) {
+    if (t.held || t.holster || t.pull || t.embed) continue;
+    tv2.set((t.a.x + t.b.x) / 2 - from.x, (t.a.y + t.b.y) / 2 - from.y, (t.a.z + t.b.z) / 2 - from.z);
+    const along = tv2.dot(dir); if (along < 0.3 || along > FAR_REACH) continue;
+    const ang = Math.sqrt(Math.max(0, tv2.lengthSq() - along * along)) / along;
+    if (ang > 0.12 + 0.12 / along || ang + along * 0.004 > bs) continue;
+    if (!sightClear(from.x, from.z, from.x + tv2.x, from.z + tv2.z)) continue;
+    bs = ang + along * 0.004; best = t;
+  }
+  return best;
+}
+function startPull(h, t) {
+  unstick(t);
+  t.a.locked = t.b.locked = true;
+  const d = Math.hypot(t.a.x - h.pos.x, t.a.y - h.pos.y, t.a.z - h.pos.z);
+  t.pull = { h, k: 0, dur: 0.14 + d * 0.03, from: new V3((t.a.x + t.b.x) / 2, (t.a.y + t.b.y) / 2, (t.a.z + t.b.z) / 2), lift: Math.min(0.6, d * 0.08), q: t.mesh.quaternion.clone() };
+  h.pulling = t; pulse(h, 0.35, 60); sfx.whoosh(t.a);
+}
+function updatePulls(dt) {
+  for (const t of tools) {
+    const P = t.pull; if (!P) continue;
+    const h = P.h;
+    P.k = Math.min(1, P.k + dt / P.dur);
+    const e = P.k * P.k * (3 - 2 * P.k);
+    tv.lerpVectors(P.from, h.pos, e); tv.y += Math.sin(Math.PI * P.k) * P.lift;
+    // it turns in the air so the handle arrives first
+    tv2.subVectors(t.b, t.a).normalize().lerp(tv3.copy(NEG_Z).applyQuaternion(h.quat), Math.min(1, dt * 9 * (0.3 + e))).normalize().multiplyScalar(t.def.len / 2);
+    t.a.moveTo(tv.x - tv2.x, tv.y - tv2.y, tv.z - tv2.z); t.b.moveTo(tv.x + tv2.x, tv.y + tv2.y, tv.z + tv2.z);
+    if (P.k < 1) continue;
+    t.pull = null; h.pulling = null;
+    if (h.held || !started) { t.a.locked = t.b.locked = false; continue; }
+    t.held = h; h.held = { type: 'tool', tool: t }; h.hasTip = false; h.toolPos = null;
+    pulse(h, 0.8, 70); sfx.draw();
+  }
 }
 function drop(h) {
   const held = h.held;
@@ -296,6 +340,9 @@ function updateHand(h, dt) {
     h.ctrl.getWorldPosition(h.pos); h.ctrl.getWorldQuaternion(h.quat);
     h.glove.visible = h.active && started;
     h.ray.visible = menu.open && h.active;
+    const aim = h.active && started && !menu.open && !h.held && !h.pulling ? farTool(h) : null;
+    if (aim && aim !== h.aim) pulse(h, 0.12, 15);
+    h.aim = aim;
     const gp = h.src?.gamepad;
     h.trigV = gp?.buttons[0]?.value ?? (h.trigger ? 1 : 0); h.gripV = gp?.buttons[1]?.value ?? 0;
   } else {
@@ -1516,6 +1563,7 @@ function frame(time) {
   }
   if (inVR) vrMove(dt); else desktopMove(dt);
   for (const h of hands()) updateHand(h, dt);
+  updatePulls(dt);
   teleported = false;
   const head = headPos();
   poseBody(body, head, headYaw(), side => inVR ? vrHands.find(h => h.active && (h.side === 'left') === (side < 0)) ?? null : (side > 0 ? desk : null), P.y - S.height, dt);
@@ -1572,5 +1620,5 @@ function frame(time) {
 renderer.setAnimationLoop(frame);
 
 // for poking at things from the console
-window.jr = { THREE, scene, RUN, P, S, counselors, police, tools, sim, blood, rig, camera, desk, vrHands, startNight, endNight, policeArrive, caption, grab, drop, killName, holsters, body, cutPhone, killPower,
+window.jr = { THREE, scene, renderer, RUN, P, S, counselors, police, tools, sim, blood, rig, camera, desk, vrHands, startNight, endNight, policeArrive, caption, grab, drop, killName, holsters, body, cutPhone, killPower,
   get state() { return { started, inVR, paused }; }, begin, look(y, p) { deskYaw = y; deskPitch = p; }, tp(x, z) { rig.position.x = x; rig.position.z = z; } };

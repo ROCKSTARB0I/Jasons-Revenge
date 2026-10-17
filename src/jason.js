@@ -1,7 +1,7 @@
 // Jason himself, as you see him: rotted, oversized hands and a big body in a
 // torn work jacket. Everything is built from primitives with painted textures.
 import * as THREE from '../vendor/three.module.js';
-import { sd, smin, ssub, mesh } from './sculpt.js?v=13';
+import { sd, smin, ssub, mesh } from './sculpt.js?v=14';
 
 function tex(w, h, draw, srgb = true) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -82,6 +82,16 @@ const bootTex = tex(128, 128, (g, w, h) => {
 
 export const skinMat = new THREE.MeshStandardMaterial({ map: skinTex, bumpMap: skinBump, bumpScale: 0.9, roughness: 0.72, metalness: 0, color: 0xffffff });
 const nailMat = new THREE.MeshStandardMaterial({ map: nailTex, roughness: 0.45 });
+// a counselor's hands: ordinary, clean, alive
+const cleanSkinTex = tex(256, 256, (g, w, h) => {
+  g.fillStyle = '#e2b896'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 40; i++) blob(g, R() * w, R() * h, 20 + R() * 50, ['rgba(226,170,140,0.35)', 'rgba(205,150,120,0.3)', 'rgba(236,196,170,0.35)'][i % 3]);
+  for (let i = 0; i < 3000; i++) { g.fillStyle = `rgba(150,100,80,${R() * 0.12})`; g.fillRect(R() * w, R() * h, 1, 1); }   // pores
+  for (let i = 0; i < 120; i++) { g.strokeStyle = 'rgba(160,110,90,0.18)'; g.lineWidth = 0.6; const x = R() * w, y = R() * h; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 4 + R() * 8, y + (R() - 0.5) * 3); g.stroke(); }   // creases
+});
+export const cleanSkinMat = new THREE.MeshStandardMaterial({ map: cleanSkinTex, bumpMap: skinBump, bumpScale: 0.15, roughness: 0.62, metalness: 0 });
+const cleanNailMat = new THREE.MeshStandardMaterial({ color: 0xe8c0b0, roughness: 0.3 });
+export const flannelMat = new THREE.MeshStandardMaterial({ roughness: 0.95, map: tex(128, 128, (g, w, h) => { g.fillStyle = '#7a2a22'; g.fillRect(0, 0, w, h); g.fillStyle = 'rgba(20,20,26,0.55)'; for (let i = 0; i < w; i += 32) { g.fillRect(i, 0, 12, h); g.fillRect(0, i, w, 12); } g.fillStyle = 'rgba(220,200,150,0.3)'; for (let i = 16; i < w; i += 32) { g.fillRect(i, 0, 2, h); g.fillRect(0, i, w, 2); } }) });
 const woundMat = new THREE.MeshStandardMaterial({ color: 0x4a0c08, roughness: 0.25 });
 const boneMat = new THREE.MeshStandardMaterial({ color: 0xd8ceb0, roughness: 0.5 });
 export const jacketMat = new THREE.MeshStandardMaterial({ map: jacketTex, roughness: 0.95 });
@@ -136,7 +146,7 @@ function handGeos(s) {
   };
   return handCache[s] = { palmG, seg };
 }
-export function buildHand(side, skin = skinMat) {
+export function buildHand(side, skin = skinMat, clean = false) {
   const s = side === 'left' ? 1 : -1;
   const root = new THREE.Group(), flat = new THREE.Group();
   root.add(flat);
@@ -148,7 +158,7 @@ export function buildHand(side, skin = skinMat) {
   add(flat, palmG, skin);
   const fingers = [];
   const LEN = [[0.046, 0.029, 0.023], [0.051, 0.033, 0.025], [0.047, 0.03, 0.023], [0.037, 0.024, 0.02]].map(a => a.map(v => v * K * 0.86));
-  const RAD = [0.0104, 0.0107, 0.01, 0.0086].map(v => v * K);
+  const RAD = [0.0104, 0.0107, 0.01, 0.0086].map(v => v * K * (clean ? 0.88 : 1));
   for (let i = 0; i < 4; i++) {
     const joints = [];
     let parent = flat, z = -0.05 * K;
@@ -160,8 +170,8 @@ export function buildHand(side, skin = skinMat) {
       const r0 = RAD[i] * (1 - j * 0.11), r1 = RAD[i] * (1 - (j + 1) * 0.11), L = LEN[i][j];
       add(g, seg(r0, r1, L, j === 2), skin);
       if (j === 2) {
-        const nail = add(g, new THREE.BoxGeometry(r1 * 1.6, 0.0025, L * 0.55), nailMat, 0, r1 * 0.72, -L * 0.62);
-        nail.rotation.x = 0.06; if (i === 1 || i === 3) nail.scale.z = 0.7;   // a couple broken off short
+        const nail = add(g, new THREE.BoxGeometry(r1 * 1.6, 0.0025, L * 0.55), clean ? cleanNailMat : nailMat, 0, r1 * 0.72, -L * 0.62);
+        nail.rotation.x = 0.06; if (!clean && (i === 1 || i === 3)) nail.scale.z = 0.7;   // a couple broken off short
       }
       joints.push(g); parent = g; z = -L;
     }
@@ -174,7 +184,7 @@ export function buildHand(side, skin = skinMat) {
   add(thumb1, seg(0.0124 * K, 0.0112 * K, 0.03 * K, false), skin);
   const thumb2 = new THREE.Group(); thumb2.position.z = -0.03 * K; thumb1.add(thumb2);
   add(thumb2, seg(0.0112 * K, 0.01 * K, 0.025 * K, true), skin);
-  add(thumb2, new THREE.BoxGeometry(0.018 * K, 0.003, 0.018 * K), nailMat, 0, 0.0105 * K, -0.02 * K);
+  add(thumb2, new THREE.BoxGeometry(0.018 * K, 0.003, 0.018 * K), clean ? cleanNailMat : nailMat, 0, 0.0105 * K, -0.02 * K);
 
   const cur = { index: 0.2, rest: 0.2 };
   root.userData.pose = (index, rest, k = 1) => {

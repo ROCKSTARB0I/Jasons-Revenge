@@ -56,6 +56,8 @@ const STABS = [[76, 77, 82], [64, 70, 71], [79, 80, 85], [71, 72, 78], [88, 89, 
 function schedule() {
   if (ac.state !== 'running') { next.ost = next.pad = next.trem = next.pizz = 0; return; }
   const now = ac.currentTime + 0.02, ahead = now + 0.25;
+  if (COUNSELOR.has(mood)) { master.gain.setTargetAtTime(0.6, now, 0.5); scheduleMood(now, ahead); return; }
+  moodT += 0.1; scheduleJason(now);
   tension += (target - tension) * 0.08;
   const T = tension;
   master.gain.setTargetAtTime(0.55, now, 0.5);
@@ -96,6 +98,79 @@ function schedule() {
 }
 const pick = a => a[Math.floor(Math.random() * a.length)];
 
+// ---------------------------------------------------------------- more voices for the moods
+// a celeste: a struck bell tone, glassy, with an inharmonic partial (the counselors' theme)
+function bell(t, freq, vol, len = 2.4) {
+  for (const [m, v] of [[1, 1], [2.76, 0.35], [5.4, 0.12]]) {
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.value = freq * m;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol * v, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + len / m);
+    o.connect(g); g.connect(out); g.connect(verbIn); o.start(t); o.stop(t + len / m + 0.05);
+  }
+}
+// a heartbeat in the low end: lub-dub
+function thump(t, vol) {
+  for (const [dt2, v] of [[0, 1], [0.22, 0.7]]) {
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine';
+    o.frequency.setValueAtTime(62, t + dt2); o.frequency.exponentialRampToValueAtTime(36, t + dt2 + 0.18);
+    g.gain.setValueAtTime(0.0001, t + dt2); g.gain.linearRampToValueAtTime(vol * v, t + dt2 + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + dt2 + 0.28);
+    o.connect(g); g.connect(out); o.start(t + dt2); o.stop(t + dt2 + 0.32);
+  }
+}
+// a dry tick, like a clock or a fingernail on wood
+function tick(t, vol, f = 3200) {
+  const n = ac.createBufferSource(), b = ac.createBuffer(1, ac.sampleRate * 0.03, ac.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3) * Math.min(1, i / 30);
+  const fl = ac.createBiquadFilter(), g = ac.createGain(); fl.type = 'bandpass'; fl.frequency.value = f; fl.Q.value = 3; g.gain.value = vol;
+  n.buffer = b; n.connect(fl).connect(g); g.connect(out); n.start(t);
+}
+// the counselors' theme: a slow, wrong little lullaby in a minor key
+const THEME = [69, 72, 71, 64, 69, 72, 76, 75, 69, 72, 71, 64, 65, 64, 63, 64];
+let themeI = 0;
+const COUNSELOR = new Set(['explore', 'near', 'chase', 'hide', 'task', 'witness', 'safe']);
+let mood = 'hunt', moodT = 0, intensity = 0, moodNext = { bell: 0, beat: 0, tick: 0, swell: 0, drone: 0 };
+function scheduleMood(now, ahead) {
+  const I = intensity, M = mood, nx = moodNext;
+  moodT += 0.1;
+  // a quiet floor under all of it: a low drone that never resolves
+  if (now >= nx.drone) { bow(now + 0.05, hz(M === 'safe' ? 45 : 33), 10, M === 'hide' ? 0.012 : 0.022 + I * 0.02, { attack: 3, release: 3, bright: 450, formant: 220 }); nx.drone = now + 7; }
+  if (M === 'explore' || M === 'hide') {
+    // the lullaby, a note at a time, far apart; hiding: hardly there at all
+    if (now >= nx.bell) { const n = THEME[themeI++ % THEME.length]; bell(now + 0.05, hz(n + (M === 'hide' ? 12 : 0)), M === 'hide' ? 0.012 : 0.03, 3); nx.bell = now + (M === 'hide' ? 2.6 : 1.3) + (themeI % 4 === 0 ? 1.6 : 0); }
+    if (M === 'hide' && now >= nx.beat) { thump(now + 0.05, 0.05 + I * 0.12); nx.beat = now + Math.max(0.42, 1.25 - I * 0.8); }
+  }
+  if (M === 'near') {
+    // he's close and you don't know where: heartbeat, and the strings creeping up underneath
+    if (now >= nx.beat) { thump(now + 0.05, 0.1 + I * 0.1); nx.beat = now + Math.max(0.5, 1.0 - I * 0.45); }
+    if (now >= nx.swell) { for (const m of [52, 53]) bow(now + 0.05, hz(m + Math.round(I * 3)), 5, 0.012 + I * 0.025, { attack: 3.5, release: 1, trem: 7 + I * 6, bright: 2500, formant: 900 }); nx.swell = now + 4; }
+    if (now >= nx.bell && Math.random() < 0.5) { bell(now + 0.05, hz(pick([81, 82, 87])), 0.012, 1.8); nx.bell = now + 2.5; }
+  }
+  if (M === 'chase') {
+    // running for your life: driving low strings, heartbeat racing, stabs
+    const beat = 0.24 - I * 0.06;
+    while (nx.tick < ahead) { const t = Math.max(nx.tick, now + 0.01); bow(t, hz(ostStep % 2 ? 41 : 40), beat * 0.8, 0.07 + I * 0.05, { attack: 0.01, release: beat * 0.4, bright: 2600, formant: 450, vib: 0, voices: 2 }); if (ostStep % 4 === 0) thump(t, 0.14); ostStep++; nx.tick = t + beat; }
+    if (now >= nx.swell) { for (const m of [76, 77, 83]) bow(now + 0.05, hz(m), 3, 0.02 + I * 0.02, { attack: 0.8, release: 1, trem: 13, bright: 6500, formant: 2500, slide: 1.05 }); nx.swell = now + 2.6; }
+    if (now >= nx.bell && Math.random() < 0.6) { stab(now + 0.05, pick(STABS), 0.05 + I * 0.03); nx.bell = now + 1.2 + Math.random() * 1.8; }
+  } else nx.tick = Math.max(nx.tick, now);
+  if (M === 'task') {
+    // fixing something, starting the car, dialling: a clock ticking, getting faster
+    const beat = Math.max(0.16, 0.5 - I * 0.34);
+    if (now >= nx.beat) { tick(now + 0.05, 0.08 + I * 0.08); pizz(now + 0.05, hz(ostStep++ % 2 ? 45 : 44), 0.03 + I * 0.03); nx.beat = now + beat; }
+    if (now >= nx.swell) { bow(now + 0.05, hz(64 + Math.round(I * 5)), 3, 0.015 + I * 0.02, { attack: 2, release: 0.8, trem: 9, bright: 4000, formant: 1500 }); nx.swell = now + 2.5; }
+  }
+  if (M === 'witness' && moodT < 0.3) { stab(now + 0.05, [64, 65, 70, 76, 77], 0.1); bow(now + 0.05, hz(88), 2, 0.035, { attack: 0.01, release: 1.6, slide: 0.45, bright: 7000, vib: 0 }); for (const m of [40, 41, 46]) bow(now + 0.3, hz(m), 6, 0.05, { attack: 0.1, release: 4, bright: 1500, slide: 0.94 }); }
+  if (M === 'safe' && moodT < 0.3) { for (const m of [57, 64, 69, 73]) bow(now + 0.05, hz(m), 8, 0.03, { attack: 2.5, release: 4, bright: 3000, formant: 900 }); for (let i = 0; i < 4; i++) bell(now + 0.5 + i * 0.6, hz([69, 73, 76, 81][i]), 0.03, 4); }
+}
+// Jason's own extra cues on top of the hunt: closing in on someone, the kill
+function scheduleJason(now) {
+  const nx = moodNext;
+  if (mood === 'close') {
+    // creeping up on someone who hasn't seen you: a heavy pulse, breath held in the strings
+    if (now >= nx.beat) { thump(now + 0.05, 0.08 + intensity * 0.1); nx.beat = now + Math.max(0.55, 1.1 - intensity * 0.5); }
+    if (now >= nx.swell) { bow(now + 0.05, hz(28), 4, 0.04 + intensity * 0.03, { attack: 2.5, release: 1, bright: 400, trem: 4 }); for (const m of [64, 65]) bow(now + 0.05, hz(m), 4, 0.008 + intensity * 0.02, { attack: 3, release: 0.8, trem: 12, bright: 5000, formant: 2000 }); nx.swell = now + 3.5; }
+  }
+  if (mood === 'kill' && moodT < 0.3) { stab(now + 0.05, [52, 53, 58, 64, 65], 0.11); for (let i = 1; i < 4; i++) stab(now + 0.05 + i * 0.32, pick(STABS), 0.07); bow(now + 0.05, hz(28), 5, 0.08, { attack: 0.02, release: 3, bright: 900, slide: 0.8 }); }
+}
+
 export const score = {
   // dest: where the music goes (the game's limiter); verb: the game's one reverb, shared
   start(audioCtx, dest, verb) {
@@ -118,4 +193,7 @@ export const score = {
     if (big) bow(t, hz(88), 1.6, 0.03, { attack: 0.01, release: 1.2, slide: 0.5, bright: 7000, vib: 0 });   // the screech sliding down
   },
   set volume(v) { if (out) out.gain.value = v; },
+  // what's going on, for the music: Jason mode 'hunt' | 'close' | 'kill'; counselor mode 'explore' | 'near' | 'chase' | 'hide' | 'task' | 'witness' | 'safe'
+  setMood(m, i = 0) { if (m !== mood) { mood = m; moodT = 0; if (ac) { const t = ac.currentTime; moodNext.beat = Math.min(moodNext.beat, t + 0.3); moodNext.swell = 0; } } intensity = Math.max(0, Math.min(1, i)); },
+  get mood() { return mood; },
 };

@@ -4,10 +4,10 @@
 // limbs, torsos and heads come apart along the line of the cut, capped with
 // flesh and bone, and what's inside falls out.
 import * as THREE from '../vendor/three.module.js';
-import { segDist } from './sim.js?v=13';
-import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=13';
-import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=13';
-import { sliceGeometry } from './slice.js?v=13';
+import { segDist } from './sim.js?v=14';
+import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=14';
+import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=14';
+import { sliceGeometry } from './slice.js?v=14';
 
 const V = THREE.Vector3, R = Math.random;
 const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), mb = new THREE.Matrix4(), UP = new V(0, 1, 0);
@@ -226,8 +226,8 @@ export class Human {
       host.g.add(m); this.organs.push(m);
     }
     for (const sd of ['l', 'r']) {
-      const up = part(sd + 'Upper', sd + 'Sh', sd + 'El', stumpMat); layer(up.g, G.upper.skin, skin, true); layer(up.g, o.uniform ? G.upper.longSleeve : G.upper.sleeve, shirt, false);
-      const fo = part(sd + 'Fore', sd + 'El', sd + 'Wr', stumpMat); layer(fo.g, G.fore.skin, skin, true); if (o.uniform) layer(fo.g, G.fore.longSleeve, shirt, false);
+      const up = part(sd + 'Upper', sd + 'Sh', sd + 'El', stumpMat); layer(up.g, G.upper.skin, skin, true); layer(up.g, o.uniform || o.longSleeves ? G.upper.longSleeve : G.upper.sleeve, shirt, false);
+      const fo = part(sd + 'Fore', sd + 'El', sd + 'Wr', stumpMat); layer(fo.g, G.fore.skin, skin, true); if (o.uniform || o.longSleeves) layer(fo.g, G.fore.longSleeve, shirt, false);
       const ha = part(sd + 'Hand', sd + 'Wr', sd + 'Fin', stumpMat); const hm = layer(ha.g, G.hand.skin, skin, true); if (sd === 'l') hm.scale.x = -1;   // the left hand is the mirror of the right
       const th = part(sd + 'Thigh', sd + 'Hip', sd + 'Kn', stumpMat);
       if (o.shorts) { layer(th.g, G.thigh.skin, skin, true); layer(th.g, G.thigh.shorts, pants, false); } else layer(th.g, G.thigh.pants, pants, true);
@@ -303,7 +303,7 @@ export class Human {
     const T = this.time, pose = this.pose;
     const crouch = pose === 'hide' || pose === 'cower' ? 1 : 0;
     const ph = this.phase, bob = (0.018 + run * 0.03) * walk * Math.abs(Math.sin(ph));
-    const lean = run * 0.32 + walk * 0.05 + crouch * 0.25;
+    const lean = run * 0.32 + walk * 0.05 + crouch * 0.25 + (this.menace ? 0.13 : 0);   // Jason: hunched, heavy, coming at you
     const hard = this.scared || this.breathHard;
     const breathe = Math.sin(T * (hard ? 4.5 : 1.6)) * (hard ? 0.012 : 0.004);
     // standing about: weight rocks from one leg to the other
@@ -329,8 +329,9 @@ export class Human {
       hy = Math.max(-1.2, Math.min(1.2, Math.atan2(dx, dz) - this.yaw)); hy = Math.atan2(Math.sin(hy), Math.cos(hy)); hy = Math.max(-1.2, Math.min(1.2, hy));
     }
     if (pose === 'hide') hp = 0.1;
+    if (this.menace) hp += pose === 'raise' ? -0.1 : 0.3;
     this.headTurn = (this.headTurn ?? 0) + (hy - (this.headTurn ?? 0)) * Math.min(1, dt * 5);
-    A.head.set(A.neck.x + Math.sin(this.headTurn) * 0.02, A.neck.y + 0.14 * Math.cos(hp), A.neck.z + 0.14 * Math.sin(-hp) * -1 + 0.012);
+    A.head.set(A.neck.x + Math.sin(this.headTurn) * 0.02 + (this.tilt ?? 0) * 0.05, A.neck.y + 0.14 * Math.cos(hp), A.neck.z + 0.14 * Math.sin(-hp) * -1 + 0.012);
     // shoulders and hips, the chest counter-twisting against the stride
     // the chest counter-twists against the stride, and turns with the head when they look back over a shoulder
     const twist = Math.sin(ph) * 0.12 * walk - Math.max(-0.35, Math.min(0.35, (this.headTurn ?? 0) * 0.3));
@@ -364,12 +365,18 @@ export class Human {
       else if (pose === 'hide') { hand.set(0.1 * sx, 0.62, 0.3); bend.set(sx, 0, -0.3); }
       else if (pose === 'cower' || pose === 'shield') { hand.set(0.07 * sx, A.head.y + 0.06, A.head.z + 0.12); bend.set(sx, -0.3, 0.6); }
       else if (pose === 'flail') { hand.set(0.35 * sx, 1.45 + Math.sin(T * 12 + off) * 0.25, 0.2 + Math.cos(T * 10) * 0.2); bend.set(sx, -1, 0); }
+      else if (pose === 'raise' && side === 'r') { hand.set(0.16, A.head.y + 0.34, A.head.z - 0.1); bend.set(1, 0.6, -0.5); }
+      else if (pose === 'strike' && side === 'r') { hand.set(-0.14, A.pelvis.y + 0.18, A.chest.z + 0.52); bend.set(1, -0.2, 0.3); }
+      else if (pose === 'choke' && side === 'l') { hand.set(-0.03, A.neck.y + 0.06, A.chest.z + 0.55); bend.set(-1, -0.6, 0); }
+      else if ((pose === 'raise' || pose === 'strike') && side === 'l') { hand.set(-0.26, 0.9, pose === 'raise' ? 0.12 : -0.05); bend.set(-0.6, -0.3, -1); }
+      else if (this.menace && run < 0.3) { const sw = Math.cos(p) * (side === 'r' ? 0.07 : 0.12) * walk; hand.set(0.27 * sx, 0.85 + Math.abs(sw) * 0.1, sw + 0.08); bend.set(sx * 0.6, -0.3, -1); }   // arms heavy at his sides, the machete low
       else if (run > 0.2) { const sw = Math.cos(p) * 0.28 * run; hand.set(0.2 * sx, 1.08 + Math.max(0, sw) * 0.25, sw + 0.08); bend.set(sx * 0.3, -0.4, -1); }   // pumping, elbows bent
       else { const sw = Math.cos(p) * 0.16 * walk; hand.set(0.235 * sx, 0.93 + Math.abs(sw) * 0.15 - crouch * 0.4, sw + 0.03); }
       if (this.scared && pose === 'idle') { hand.set(0.12 * sx, 1.1, 0.15); bend.set(sx, -1, 0); }
       // clutching a wound: the hand on the side of it presses over it
       if (this.clutch && this.clutch.t > 0 && (this.clutch.x * sx >= -0.02 || this.clutch.both)) { hand.set(this.clutch.x * 0.8 + sx * 0.02, this.clutch.y, this.clutch.z + 0.06); bend.set(sx, -0.5, -0.3); }
       if (this.breathHard && walk < 0.3 && pose === 'idle') { hand.set(0.1 * sx, 0.6, 0.22); bend.set(sx, 0.2, -0.5); }   // hands on knees, gasping
+      { const hs = (this.handS ??= {})[side] ??= hand.clone(); const rate = this.menace ? (pose === 'strike' ? 16 : pose === 'raise' ? 4.5 : 6) : 18; hs.lerp(hand, Math.min(1, dt * rate)); hand.copy(hs); }
       ik(sh, hand, 0.29, 0.25, bend, A[side + 'El']);
       A[side + 'Wr'].copy(t3.subVectors(hand, A[side + 'El']).setLength(0.25).add(A[side + 'El']));
       A[side + 'Fin'].copy(t3.subVectors(A[side + 'Wr'], A[side + 'El']).setLength(0.17).add(A[side + 'Wr']));

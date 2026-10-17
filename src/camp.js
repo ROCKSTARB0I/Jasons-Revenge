@@ -2,8 +2,8 @@
 // buildings (from the kit in build.js), the woods, the fence, and a walk grid the
 // counselors find their way round with.
 import * as THREE from '../vendor/three.module.js';
-import { makeKit, kitMaterials } from './build.js?v=13';
-import { areaById } from './areas.js?v=13';
+import { makeKit, kitMaterials } from './build.js?v=14';
+import { areaById } from './areas.js?v=14';
 
 export const BOUND = 58;                 // the woods close in past this
 let SHORE = x => -30 + Math.sin(x * 0.07) * 3 + Math.sin(x * 0.19 + 1) * 1.2;
@@ -55,6 +55,7 @@ export const TOOL_SPOTS = {};
 export const BEDS = [];       // beds and bunks: { x, z, yaw (head end), side: where to stand to get in }
 export const DOORS = [];
 export const LAMPS = [];
+export const SURFACES = [];   // table and counter tops, benches: where things get left
 // the tool shed on the shore: a workbench and a pegboard wall of things to kill with
 export const SHED = { x: -6, z: -24.6, slots: [], lean: [] };
 // things you can wreck so nobody gets help: the phone line, their car, the power
@@ -227,7 +228,7 @@ export function buildCamp(scene, world, areaId) {
   const ctx = {
     statics, live, world, addSolid,
     floor: (...a) => rectAdd(FLOORS, ...a), bunk: (...a) => rectAdd(BUNKS, ...a),
-    lamps: LAMPS, doors: DOORS, hides: HIDES, hidingSpots: HIDING, beds: BEDS, spots: SPOTS, phone: null, toolWall: null,
+    lamps: LAMPS, doors: DOORS, hides: HIDES, hidingSpots: HIDING, beds: BEDS, spots: SPOTS, surfaces: SURFACES, phone: null, toolWall: null,
   };
   const kit = makeKit(KM, ctx);
   const footprints = [];

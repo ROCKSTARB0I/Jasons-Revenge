@@ -1,16 +1,18 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=13';
-import { Human } from './body.js?v=13';
-import { Blood } from './blood.js?v=13';
-import { sfx } from './sfx.js?v=13';
-import { score } from './score.js?v=13';
-import { Rain } from './rain.js?v=13';
-import { AREAS } from './areas.js?v=13';
-import { WINDMILL } from './camp.js?v=13';
-import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=13';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=13';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=13';
+import { Sim, STEP, segDist } from './sim.js?v=14';
+import { Human } from './body.js?v=14';
+import { sd, smin, ssub, mesh } from './sculpt.js?v=14';
+import { Blood } from './blood.js?v=14';
+import { sfx } from './sfx.js?v=14';
+import { score } from './score.js?v=14';
+import { Rain } from './rain.js?v=14';
+import { AREAS } from './areas.js?v=14';
+import { WINDMILL } from './camp.js?v=14';
+import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, SURFACES, DOCK, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=14';
+import { buildHand, makeBody, poseBody, skinMat, cleanSkinMat, flannelMat } from './jason.js?v=14';
+const glove = side => new URLSearchParams(location.search).get('mode') === 'counselor' ? buildHand(side, cleanSkinMat, true) : buildHand(side);
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=14';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -84,13 +86,13 @@ function makeHand(ctrl) {
 const vrHands = [0, 1].map(i => {
   const c = renderer.xr.getController(i); rig.add(c);
   const h = makeHand(c); h.side = i ? 'right' : 'left';
-  h.glove = buildHand(h.side); h.glove.visible = false; scene.add(h.glove);
+  h.glove = glove(h.side); h.glove.visible = false; scene.add(h.glove);
   h.ray = new THREE.Mesh(new THREE.BoxGeometry(0.002, 0.002, 1.5), new THREE.MeshBasicMaterial({ color: 0xc8c0b0, transparent: true, opacity: 0.35 }));
   h.ray.position.z = -0.75; h.ray.visible = false; c.add(h.ray);
   c.addEventListener('connected', e => {
     h.src = e.data;
     const side = e.data.handedness === 'left' ? 'left' : 'right';
-    if (side !== h.side) { h.side = side; for (const ch of [...h.glove.children].slice(1)) body.g.add(ch); scene.remove(h.glove); h.glove = buildHand(side); scene.add(h.glove); }
+    if (side !== h.side) { h.side = side; for (const ch of [...h.glove.children].slice(1)) body.g.add(ch); scene.remove(h.glove); h.glove = glove(side); scene.add(h.glove); }
   });
   c.addEventListener('disconnected', () => { h.src = null; h.trigger = false; drop(h); });
   c.addEventListener('selectstart', () => { h.trigger = true; if (menu.open) menuClick(h); });
@@ -101,7 +103,7 @@ const vrHands = [0, 1].map(i => {
   return h;
 });
 const desk = makeHand(null); desk.jab = 0; desk.side = 'right';
-desk.glove = buildHand('right'); desk.glove.visible = false; scene.add(desk.glove);
+desk.glove = glove('right'); desk.glove.visible = false; scene.add(desk.glove);
 const hands = () => inVR ? vrHands : [desk];
 const allHands = () => [...vrHands, desk];
 function pulse(h, i, ms) { h?.src?.gamepad?.hapticActuators?.[0]?.pulse?.(i, ms); }
@@ -110,7 +112,7 @@ function headPos() { return camera.getWorldPosition(headV); }
 function headYaw() { camera.getWorldDirection(tv3); return Math.atan2(-tv3.x, -tv3.z); }
 const BLOODY = new THREE.Color(0x5a0a06);
 let handBlood = 0;
-function bloody(amt) { handBlood = Math.min(1, Math.max(0, handBlood + amt)); skinMat.color.setRGB(1, 1, 1).lerp(BLOODY, handBlood * 0.55); }
+function bloody(amt) { handBlood = Math.min(1, Math.max(0, handBlood + amt)); skinMat.color.copy(HAND_SKIN).lerp(BLOODY, handBlood * 0.55); }
 
 // sheath on the left hip, a strap over the right shoulder, a slot on the right hip
 const holsters = [
@@ -154,7 +156,7 @@ function resetTools() {
   tools.length = 0; for (const hs of holsters) hs.tool = null;
   for (const h of allHands()) h.held = null;
   // the machete starts on your back: reach over your right shoulder for it
-  const m = makeTool('machete'); holsters[2].tool = m; m.holster = holsters[2];
+  if (!HUNT) { const m = makeTool('machete'); holsters[2].tool = m; m.holster = holsters[2]; }
   // the rest are on the way up from the water: a knife in the dock, an axe in a stump on the shore, a pitchfork by the fire path
   plant(makeTool('knife'), tv2.set(TOOL_SPOTS.knife.x, TOOL_SPOTS.knife.y, TOOL_SPOTS.knife.z), tv.set(0.1, -1, 0.15).normalize());
   plant(makeTool('axe'), tv2.set(STUMP.x + 0.05, 0.62, STUMP.z), tv.set(0.15, -1, 0.3).normalize());
@@ -191,7 +193,9 @@ function updateGlints(t) {
 
 // ------------------------------------------------------------ grabbing
 function grab(h) {
-  if (h.held || !started) return;
+  if (!started) return;
+  if (HUNT) { if (huntGrab(h)) return; } else if (!h.held) { const sp = spotNearHand(h, true); if (sp) { ripOut(h, sp); return; } }
+  if (h.held) return;
   for (const hs of holsters) {
     if (!hs.tool || !inVR || holsterPos(hs, tv).distanceTo(h.pos) > 0.28) continue;
     const t = hs.tool; hs.tool = null; t.holster = null; t.held = h; h.held = { type: 'tool', tool: t }; h.hasTip = false;
@@ -215,7 +219,7 @@ function grab(h) {
     const d = inVR ? Math.sqrt(segDist(h.pos, h.pos, t.a, t.b)) : near((t.a.x + t.b.x) / 2, (t.a.y + t.b.y) / 2, (t.a.z + t.b.z) / 2);
     if (d < bd) { bd = d; best = { type: 'tool', tool: t }; }
   }
-  const mine = new Map(victims().map(d => [d, d]));
+  const mine = new Map(HUNT ? [] : victims().filter(d => !d.hiddenIn).map(d => [d, d]));
   for (const p of sim.points) {
     const d = mine.get(p.owner); if (!d || p.hand || p.dead || p.tag === 'side') continue;
     const dd = near(p.x, p.y, p.z, p.r) + (p.tag === 'neck' ? -0.05 : 0);
@@ -419,7 +423,8 @@ function melee(h, t, dt) {
   const speed = tipVel.length();
   bladeDir.set(t.b.x - t.a.x, t.b.y - t.a.y, t.b.z - t.a.z).normalize();
   const thrust = tipVel.dot(bladeDir);
-  if (speed > 2.2 && speed < 80) hitProps(h, t);
+  if (!HUNT && speed > 2.2 && speed < 80) hitProps(h, t);
+  if (HUNT) { if (speed > 2.4 && speed < 80) hunterMelee(h, t, speed); h.prevTip.copy(h.tip); return; }
   if (speed > 1.3 && speed < 80) {
     for (const d of victims()) {
       if ((d.cutCd ?? 0) > performance.now()) continue;
@@ -575,6 +580,7 @@ function updateStuck(t) {
 
 // ------------------------------------------------------------ bare hands
 function pushHands() {
+  if (HUNT) return;
   for (const h of hands()) {
     if (!h.active || h.held) continue;
     const speed = h.vel.length();
@@ -777,7 +783,7 @@ function beamHit(o, dir) {
 }
 // ---- the brain
 function setState(d, st, at = null) {
-  const a = d.ai; if (!a || !d.alive) return;
+  const a = d.ai; if (!a || !d.alive || d.hiddenIn) return;
   if (a.bed && st !== 'asleep' && st !== 'toBed') { if (a.state === 'asleep') { d.root.x = a.bed.side.x; d.root.z = a.bed.side.z; d.blend = 0; say(d, 'gasp'); } a.bed.taken = null; a.bed = null; if (d.flash) d.flash.visible = true; }
   a.state = st; a.route = null; a.routeT = 0; d.goal = null; a.target = at;
   d.wantSpeed = st === 'idle' ? 0 : st === 'wander' ? 1.1 : st === 'investigate' ? 1.3 : 3.6;
@@ -796,6 +802,7 @@ function alertOf(d, amount) {
 }
 function screamHeard(from) {
   const at = posOf(from);
+  if (HUNT) hunterHear(at, 30);
   for (const d of counselors) {
     if (d === from || !d.alive || !d.ai || d.ai.seen) continue;
     const me = posOf(d), dist = Math.hypot(me.x - at.x, me.z - at.z);
@@ -806,18 +813,20 @@ function screamHeard(from) {
   }
 }
 function chooseFlight(d) {
-  const a = d.ai, me = posOf(d), J = headPos();
+  if (d.hiddenIn) return;
+  const a = d.ai, me = posOf(d), J = threatPos();
   const away = (x, z) => Math.hypot(x - J.x, z - J.z) - Math.hypot(x - me.x, z - me.z) * 0.6;
   const opts = [];
   if (!PHONE.cut && RUN.calledAt < 0 && !counselors.some(o => o !== d && o.ai?.state === 'toPhone')) opts.push({ st: 'toPhone', x: PHONE.stand.x, z: PHONE.stand.z, w: 1.3 });
   for (const hd of HIDES) opts.push({ st: 'hide', x: hd.x, z: hd.z, hide: hd, w: 0.55 });
+  for (const sp of HIDING) if (!sp.occ && sp.kind !== 'hay' && Math.hypot(sp.x - me.x, sp.z - me.z) < 22) opts.push({ st: 'hide', x: sp.out.x, z: sp.out.z, spot: sp, w: 0.75 });
   let best = null, bs = -1e9;
   for (const o of opts) {
     const sc = away(o.x, o.z) * o.w + rand(0, 6) - (o.hide && counselors.some(c => c !== d && c.ai?.hideAt === o.hide) ? 8 : 0);
     if (sc > bs) { bs = sc; best = o; }
   }
   if (!best || bs < -6) { const ang = Math.atan2(me.x - J.x, me.z - J.z) + rand(-0.6, 0.6); best = { st: 'flee', x: Math.max(-FENCE + 3, Math.min(FENCE - 3, me.x + Math.sin(ang) * 20)), z: Math.max(shoreZ(me.x) + 3, Math.min(FENCE - 3, me.z + Math.cos(ang) * 20)) }; }
-  a.hideAt = best.hide ?? null;
+  a.hideAt = best.hide ?? null; a.hideSpot = best.spot ?? null;
   setState(d, best.st === 'hide' ? 'flee' : best.st, { x: best.x, z: best.z });
   a.plan = best.st;
 }
@@ -854,11 +863,12 @@ function canSee(d, J) {
   return 1 - dist / (range + 2);
 }
 function updateCounselors(dt) {
-  const J = headPos(), jSpeed = P.moveSpeed;
+  const J = threatPos(), jSpeed = threatSpeed();
   for (const d of counselors) {
     const a = d.ai;
     updateFlashlight(d);
     if (!d.alive || !a) continue;
+    if (a.state === 'hidden') { updateHiddenAI(d, dt); continue; }
     a.screamT -= dt;
     if (d.held) { d.scared = true; d.unaware = false; if (Math.random() < dt * 0.6) say(d, pick(['plead', 'shriek', 'sob'])); continue; }
     // knocked down: if they can't get up, they crawl away from him
@@ -916,6 +926,7 @@ function updateCounselors(dt) {
         const t = a.target;
         if (t && Math.hypot(t.x - J.x, t.z - J.z) < Math.hypot(t.x - me.x, t.z - me.z) * 0.7 && dist < 10 && (a.rethink = (a.rethink ?? 0) - dt) <= 0) { a.rethink = 2.5; chooseFlight(d); break; }
         if (!t || goTo(d, t.x, t.z, dt)) {
+          if (a.hideSpot) { const sp = a.hideSpot; a.hideSpot = null; if (!sp.occ) hideAI(d, sp); else chooseFlight(d); break; }
           if (a.hideAt) { setState(d, 'hide'); a.hideT = 0; d.face = Math.atan2(a.hideAt.door.x - me.x, a.hideAt.door.z - me.z); }
           else chooseFlight(d);
         }
@@ -973,15 +984,21 @@ function removeVictim(d) {
   let i = counselors.indexOf(d); if (i >= 0) counselors.splice(i, 1);
   i = police.indexOf(d); if (i >= 0) police.splice(i, 1);
 }
-function pushRoot(r) { const [x, z] = collide(r.x, r.z, 0.25); r.x = x; r.z = z; }
+function pushRoot(r) {
+  const [x, z] = collide(r.x, r.z, 0.25); r.x = x; r.z = z;
+  // nobody walks off across the lake (the dock's fine)
+  const onDock = x > DOCK.x0 - 0.3 && x < DOCK.x1 + 0.3 && z > DOCK.z0 && z < DOCK.z1 + 1;
+  if (!onDock) r.z = Math.max(r.z, shoreZ(r.x) - 1.2);
+}
 
 
 // Noise: anyone in earshot hears it. Sleepers wake (light sleepers nearer the
 // source), people up and about come to look. Rain covers a lot of it.
 function noise(at, radius) {
   if (RUN.rain) radius *= 0.6;
+  if (HUNT) hunterHear(at, radius);
   for (const d of counselors) {
-    if (!d.alive || !d.ai || d.held) continue;
+    if (!d.alive || !d.ai || d.held || d.hiddenIn) continue;
     const me = posOf(d), dist = Math.hypot(me.x - at.x, me.z - at.z);
     const a = d.ai;
     if (a.state === 'asleep') { if (dist < radius * 0.7) { setState(d, 'investigate', { x: at.x, z: at.z }); a.aware = 0.5; } continue; }
@@ -1017,6 +1034,7 @@ function killName(d) {
 }
 const pending = [];
 function onKilled(d) {
+  RUN.killMoodT = RUN.t;
   if (!d.headGone && !d.severed.has('neck')) say(d, d.burnT > 0 ? 'burning' : 'die');
   sfx.bodyfall(d.p.chest);
   if (d.police) { caption('One less cop.', 2.5); return; }
@@ -1080,7 +1098,7 @@ function tracer(a, b) {
   scene.add(m); tracers.push({ m, t: 0.06 });
 }
 function updatePolice(dt) {
-  const J = headPos();
+  const J = threatPos();
   for (const d of police) {
     const c = d.cop, g = d.gun, hand = d.p.rFin;
     g.mesh.position.set(hand.x, hand.y, hand.z);
@@ -1112,6 +1130,7 @@ function updatePolice(dt) {
   }
 }
 function hurtJason(n) {
+  if (HUNT) { if (JN && JN.mode === 'anim' && Math.random() < 0.4) knockdown(2.5, null); return; }
   if (P.down || RUN.over) return;
   P.hp -= n; P.hurtT = 0.4; P.lastHit = RUN.t;
   sfx.impact(); for (const h of hands()) pulse(h, 1, 120);
@@ -1172,14 +1191,17 @@ function drawWrist() {
   const alive = counselors.filter(c => c.alive).length;
   const left = Math.max(0, RUN.dawn - RUN.t), mm = Math.floor(left / 60), ss = Math.floor(left % 60);
   const pol = RUN.policeHere ? 'HERE' : RUN.policeAt > 0 ? `coming · ${Math.max(0, Math.ceil(RUN.policeAt - RUN.t))}s` : '—';
-  const lines = [[`NIGHT ${RUN.night}`, `${mm}:${String(ss).padStart(2, '0')} till dawn`], [`${alive} alive`, `${RUN.kills.length} dead · ${RUN.escaped.length} gone`],
+  const carrying = HUNT ? [...H.items].filter(([, n]) => n > 0).map(([k, n]) => ITEM[k].short + (n > 1 ? ' ×' + n : '')).join(', ') || 'nothing' : '';
+  const lines = HUNT ? [[`NIGHT ${RUN.night}`, `${mm}:${String(ss).padStart(2, '0')} till dawn`], ['you', '♥'.repeat(H.maxHits - H.hits) + '·'.repeat(H.hits)], ['carrying', carrying.length > 22 ? carrying.slice(0, 21) + '…' : carrying],
+    ['phone line', PHONE.cut ? 'cut' : 'live'], ['power', GENERATOR.on ? 'on' : 'off'], ['police', pol]]
+    : [[`NIGHT ${RUN.night}`, `${mm}:${String(ss).padStart(2, '0')} till dawn`], [`${alive} alive`, `${RUN.kills.length} dead · ${RUN.escaped.length} gone`],
     ['phone line', PHONE.cut ? 'cut' : 'live'], ['power', GENERATOR.on ? 'on' : 'off'], ['police', pol], ['the gate', GATE.open ? 'open' : 'locked']];
   const key = JSON.stringify(lines) + Math.round(P.hp);
   if (key === wristKey) return; wristKey = key;
   const g = wristCanvas.getContext('2d'); g.clearRect(0, 0, 512, 320);
   g.fillStyle = 'rgba(20,16,12,0.82)'; g.fillRect(0, 0, 512, 320); g.strokeStyle = 'rgba(120,100,80,0.5)'; g.lineWidth = 3; g.strokeRect(4, 4, 504, 312);
   g.font = '30px "Special Elite", "Courier New", monospace'; g.textBaseline = 'middle';
-  const warn = b => b === 'live' || b === 'on' || b === 'open' || b === 'HERE' || b.startsWith('coming');
+  const warn = b => HUNT ? (b === 'cut' || b === 'off' || b.includes('·')) : (b === 'live' || b === 'on' || b === 'open' || b === 'HERE' || b.startsWith('coming'));
   lines.forEach(([a, b], i) => { g.fillStyle = i ? '#a89c88' : '#d0c6b4'; g.textAlign = 'left'; g.fillText(a, 22, 34 + i * 46); g.textAlign = 'right'; g.fillStyle = warn(b) ? '#b8432e' : '#a89c88'; g.fillText(b, 490, 34 + i * 46); });
   if (P.hp < 100) { g.fillStyle = '#3a0a06'; g.fillRect(22, 302, 468, 8); g.fillStyle = '#9a1a10'; g.fillRect(22, 302, 468 * P.hp / 100, 8); }
   wristTex.needsUpdate = true;
@@ -1295,7 +1317,7 @@ function startNight(n) {
   handBlood = 0; bloody(0);
   resetTools();
   // scatter them about the camp, well away from the shore you come up on; a couple at most by the fire
-  const count = Math.min(14, 5 + n * 2);
+  const count = HUNT ? Math.min(8, 4 + n) : Math.min(14, 5 + n * 2);
   const far = SPOTS.filter(s => Math.hypot(s.x - START.x, s.z - START.z) > 30).sort(() => Math.random() - 0.5);
   const chosen = [], used = new Map();
   for (const s of [...far, ...far, ...far]) {
@@ -1312,9 +1334,11 @@ function startNight(n) {
   rig.rotation.y = inVR ? Math.PI : 0; deskYaw = Math.PI; deskPitch = 0;
   teleported = true;
   sting();
-  caption(`Night ${['one', 'two', 'three', 'four', 'five', 'six', 'seven'][n - 1] ?? n}`, 5, `${chosen.length} counselors at ${AREA.name}${RUN.rain ? ' · rain' : ''}`);
+  if (HUNT) startHuntNight();
+  else caption(`Night ${['one', 'two', 'three', 'four', 'five', 'six', 'seven'][n - 1] ?? n}`, 5, `${chosen.length} counselors at ${AREA.name}${RUN.rain ? ' · rain' : ''}`);
 }
 function checkNightOver() {
+  if (HUNT) return;
   if (RUN.over || counselors.some(c => c.alive) || pending.length) return;
   setTimeout(() => endNight(false), 2500);
 }
@@ -1337,7 +1361,7 @@ function endNight(fail) {
 function updateNight(dt) {
   if (RUN.over) return;
   RUN.t += dt;
-  if (RUN.t >= RUN.dawn) { endNight(false); return; }
+  if (RUN.t >= RUN.dawn) { if (HUNT) { if (!H.won && !H.dead) escapeBy('dawn'); } else endNight(false); return; }
   if (RUN.policeAt > 0 && !RUN.policeHere && RUN.t >= RUN.policeAt) policeArrive();
   if (RUN.carDriving) {
     const c = RUN.carDriving, m = CAR.mesh; c.t += dt;
@@ -1363,7 +1387,8 @@ function updateLamps(dt) {
 // doors swing open as anyone comes up to them; they creak, and they bang shut
 function updateDoors(dt) {
   const acts = [headPos()];
-  for (const d of [...counselors, ...police]) if (!d.gone && (d.alive || d.held)) acts.push(d.p.pelvis);
+  for (const d of [...counselors, ...police]) if (!d.gone && !d.hiddenIn && (d.alive || d.held)) acts.push(d.p.pelvis);
+  if (JN) acts.push(JN.p.pelvis);
   camp.updateDoors(dt, acts);
   for (const dr of DOORS) {
     if (dr.target && !dr.creaked && dr.open > 0.04) { dr.creaked = true; sfx.door(tv3.set(dr.x, 1, dr.z)); }
@@ -1420,9 +1445,10 @@ function collide(x, z, R_ = 0.32) {
   return [x, z];
 }
 function moveJason(dx, dz, dt) {
+  if (HUNT && (P.hidden || H.dead || scare || H.won)) { P.moveSpeed = 0; return; }
   const J = headPos(), wading = groundAt(J.x, J.z) < -0.1;
   const run = P.sprint && P.stamina > 0;
-  let speed = (run ? 4.3 : 2.1) * (wading ? 0.6 : 1);
+  let speed = (HUNT ? (run ? 4.6 : crouched() ? 1.0 : 1.75) : (run ? 4.3 : 2.1)) * (wading ? 0.6 : 1);
   if (P.down) speed = 0;
   const len = Math.hypot(dx, dz); if (len > 1) { dx /= len; dz /= len; }
   let nx = J.x + dx * speed * dt, nz = J.z + dz * speed * dt;
@@ -1431,12 +1457,12 @@ function moveJason(dx, dz, dt) {
   rig.position.x += nx - J.x; rig.position.z += nz - J.z;
   const moved = Math.hypot(nx - J.x, nz - J.z) / Math.max(dt, 1e-3);
   P.moveSpeed = moved;
-  if (run && moved > 1) P.stamina = Math.max(0, P.stamina - dt * 22); else P.stamina = Math.min(100, P.stamina + dt * 14);
+  if (run && moved > 1) P.stamina = Math.max(0, P.stamina - dt * (HUNT ? 16 : 22)); else P.stamina = Math.min(100, P.stamina + dt * (HUNT ? 10 : 14));
   if (P.stamina <= 0) { P.sprint = false; sprintToggle = false; }
   const fy = groundAt(nx, nz) + S.height;
   P.y = fy; rig.position.y += (fy - rig.position.y) * Math.min(1, dt * 8);
   P.stepAcc = (P.stepAcc ?? 0) + moved * dt;
-  if (P.stepAcc > (run ? 1.0 : 0.85)) { P.stepAcc = 0; const f = tv.set(nx, fy - S.height, nz); wading ? sfx.splash(f) : sfx.step(f, 0.14); noise(f, wading ? (run ? 9 : 4) : run ? 8 : 1.6); }
+  if (P.stepAcc > (run ? 1.0 : 0.85)) { P.stepAcc = 0; const f = tv.set(nx, fy - S.height, nz); wading ? sfx.splash(f) : sfx.step(f, HUNT ? (run ? 0.12 : 0.05) : 0.14); noise(f, wading ? (run ? 9 : 4) : run ? (HUNT ? 10 : 8) : HUNT ? (crouched() ? 0.5 : 2.2) : 1.6); }
 }
 function desktopMove(dt) {
   let f = 0, s = 0;
@@ -1455,10 +1481,12 @@ function vrMove(dt) {
     if (h.side === 'left') {
       mx = ax[0]; my = ax[1];
       const click = gp.buttons[3]?.pressed; if (click && !h.clickPrev) sprintToggle = !sprintToggle; h.clickPrev = click;
+      const x = gp.buttons[4]?.pressed; if (x && !h.xPrev) useMedkit(); h.xPrev = x;
       const y = gp.buttons[5]?.pressed; if (y && !h.yPrev && !RUN.over) { if (menu.open && paused) { paused = false; closeMenu(); } else if (!menu.open) pauseMenu(); } h.yPrev = y;
     } else {
       tx = ax[0];
-      const click = gp.buttons[3]?.pressed; if (click && !h.clickPrev) useSense(); h.clickPrev = click;
+      const click = gp.buttons[3]?.pressed; if (click && !h.clickPrev) { if (HUNT) { H.flash = !H.flash; sfx.tick(); } else useSense(); } h.clickPrev = click;
+      const a = gp.buttons[4]?.pressed; if (a && !h.aPrev && HUNT) { H.flash = !H.flash; sfx.tick(); } h.aPrev = a;
       const b = gp.buttons[5]?.pressed; if (b && !h.bPrev && !RUN.over) { if (menu.open && paused) { paused = false; closeMenu(); } else if (!menu.open) pauseMenu(); } h.bPrev = b;
     }
   }
@@ -1511,7 +1539,8 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (!started) return;
   if (e.code === 'KeyE') { if (desk.held) drop(desk); else grab(desk); }
-  if (e.code === 'KeyF') useSense();
+  if (e.code === 'KeyF') { if (HUNT) { H.flash = !H.flash; sfx.tick(); } else useSense(); }
+  if (e.code === 'KeyH') useMedkit();
   if (e.code === 'KeyQ' && desk.held?.type === 'point') { desk.vel.copy(NEG_Z).applyQuaternion(camera.getWorldQuaternion(tq)).multiplyScalar(9).y += 3; drop(desk); }
   if (e.code === 'KeyR') desk.trigger = true;
   if (['Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
@@ -1522,6 +1551,740 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM' || e.code === 'Escape') { if (menu.open && paused && !RUN.over) { paused = false; closeMenu(); } else if (!menu.open) pauseMenu(); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyR') desk.trigger = false; });
+
+// ============================================================ hiding
+// Wardrobes, lockers, toilet stalls, showers, under the beds, behind the hay.
+// Anybody can hide in them: you, when you're a counselor, and the counselors,
+// when you're Jason. Inside, all you see is the crack between the doors.
+for (const sp of HIDING) { sp.occ = null; sp.open = 0; sp.target = 0; sp.holdT = 0; }
+function setSpotOpen(sp, v) {
+  sp.open = v;
+  for (const dr of sp.doors ?? []) dr.hinge.rotation.y = dr.sgn * v * 1.75;
+  if (sp.curtain) sp.curtain.scale.x = 1 - v * 0.7;
+}
+function flingSpot(sp, hold = 0.9) { sp.target = 1; sp.holdT = hold; sfx.door(tv3.set(sp.x, 1, sp.z)); }
+function updateSpots(dt) {
+  for (const sp of HIDING) {
+    if (sp.holdT > 0) { sp.holdT -= dt; if (sp.holdT <= 0) sp.target = 0; }
+    if (Math.abs(sp.open - sp.target) > 0.002) setSpotOpen(sp, sp.open + (sp.target - sp.open) * Math.min(1, dt * (sp.target ? 9 : 3)));
+  }
+}
+const spotFacing = sp => ({ x: Math.sin(sp.yaw), z: Math.cos(sp.yaw) });
+// where your eyes are, hidden in it
+function spotEye(sp) {
+  const f = spotFacing(sp), y = sp.y ?? 0.2;
+  if (sp.kind === 'underbed') return { x: sp.x + f.x * 0.45, y: y + 0.24, z: sp.z + f.z * 0.45, look: Math.atan2(-f.x, -f.z) };
+  if (sp.kind === 'hay') return { x: sp.out.x, y: y + 0.95, z: sp.out.z, look: Math.atan2(f.x, f.z) };
+  const fwd = sp.kind === 'stall' ? 0.05 : sp.kind === 'shower' ? 0.1 : 0.08;
+  return { x: sp.x + f.x * fwd, y: y + 1.55, z: sp.z + f.z * fwd, look: Math.atan2(-f.x, -f.z) };
+}
+// the crack: two black panels in front of your eyes with a sliver of the room between them
+const crackMat = new THREE.MeshBasicMaterial({ color: 0x050302, depthTest: false, depthWrite: false, fog: false });
+const crack = [0, 1].map(() => { const m = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6), crackMat); m.renderOrder = 1004; m.visible = false; camera.add(m); return m; });
+function updateCrack(peek) {
+  const sp = P.hidden;
+  for (const m of crack) m.visible = !!sp;
+  if (!sp) return;
+  const flat = sp.kind === 'underbed', gap = (sp.kind === 'hay' ? 0.018 : 0.0035) + peek * (sp.kind === 'hay' ? 0.05 : 0.016);
+  crack.forEach((m, i) => {
+    const sgn = i ? 1 : -1;
+    if (flat) m.position.set(0, sgn * (0.3 + gap / 2) - 0.004, -0.11); else m.position.set(sgn * (0.3 + gap / 2), 0, -0.11);
+    m.rotation.z = flat ? 0 : sgn * 0.004;
+  });
+}
+// the counselors hide too
+function hideAI(d, sp) {
+  const a = d.ai; sp.occ = d; d.hiddenIn = sp; a.state = 'hidden'; a.hideT = 0; d.goal = null; d.wantSpeed = 0; d.speed = 0;
+  flingSpot(sp, 0.5); d.group.visible = false; if (d.flash) { d.flash.visible = false; d.flash.userData.pool.visible = false; }
+}
+function unhideAI(d, ripped = false) {
+  const sp = d.hiddenIn; if (!sp) return;
+  sp.occ = null; d.hiddenIn = null; d.group.visible = true; flingSpot(sp, ripped ? 1.6 : 0.6);
+  d.root.x = sp.out.x; d.root.z = sp.out.z; d.yaw = sp.yaw; d.blend = 0;
+}
+function updateHiddenAI(d, dt) {
+  const a = d.ai, sp = d.hiddenIn, J = threatPos(), dist = Math.hypot(J.x - sp.x, J.z - sp.z);
+  a.hideT += dt; d.goal = null; d.root.x = sp.out.x; d.root.z = sp.out.z;
+  // you can hear them in there: breathing, a sob held in; louder when he's close
+  const fear = Math.max(0, 1 - dist / 9);
+  if (Math.random() < dt * (0.12 + fear * 0.5)) sfx.breath(tv3.set(sp.x, (sp.y ?? 0.2) + 1.2, sp.z), d.female);
+  if (Math.random() < dt * (0.02 + fear * 0.15)) say(d, pick(['sob', 'whimper']));
+  if (a.hideT > 50 + (a.hidePatience ??= rand(0, 50)) && dist > 26) { unhideAI(d); a.seen = false; a.aware = 0.4; setState(d, 'investigate', { x: CAMPFIRE.x + rand(-3, 3), z: CAMPFIRE.z + rand(-3, 3) }); }
+}
+// Jason (you) reaches into a wardrobe and drags them out
+function spotNearHand(h, occupied) {
+  const at = inVR ? h.pos : tv3.copy(headPos()).add(tv.copy(NEG_Z).applyQuaternion(camera.getWorldQuaternion(tq)).multiplyScalar(1.0));
+  let best = null, bd = inVR ? 1.0 : 1.4;
+  for (const sp of HIDING) {
+    if (occupied && (!sp.occ || sp.occ === 'player')) continue;
+    const dd = Math.min(Math.hypot(sp.x - at.x, sp.z - at.z), Math.hypot(sp.out.x - at.x, sp.out.z - at.z) + 0.2);
+    if (dd < bd) { bd = dd; best = sp; }
+  }
+  return best;
+}
+function ripOut(h, sp) {
+  const d = sp.occ; unhideAI(d, true);
+  d.ai.state = 'flee'; d.ai.seen = true; d.scared = true;
+  d.update(0.001, groundAt, null); d.sync();
+  d.ragdoll(3);
+  const p = d.p.neck; p.locked = true; p.hand = h; h.held = { type: 'point', p, d }; h.holdDist = 0.8;
+  d.held++; d.grabbedBy = h.pos; d.choked = true;
+  say(d, 'shriek'); sfx.thud(tv3.set(sp.x, 1, sp.z)); score.stinger(true); pulse(h, 1, 120);
+  caption(`${d.name} — dragged out of the ${sp.kind === 'underbed' ? 'dark under the bed' : sp.kind === 'hay' ? 'hay' : sp.kind}`, 3);
+}
+
+// ============================================================ counselor mode
+// You're one of them. Jason is out there. Find a way out before he finds you.
+const HUNT = SET.mode === 'counselor';
+const HAND_SKIN = new THREE.Color(1, 1, 1);
+const threatPos = () => HUNT ? (JN?.p.head ?? headPos()) : headPos();
+const threatSpeed = () => HUNT ? (JN?.speed ?? 0) : P.moveSpeed;
+let JN = null;                       // the hunter
+const H = { hits: 0, maxHits: 3, items: new Map(), flash: true, task: null, won: false, dead: false, battery: false, witnessT: -99, seenT: -99, carT: 0, gunHand: null };
+
+// ---- your flashlight
+const myFlash = new THREE.SpotLight(0xfff0d8, 0, 26, 0.42, 0.45, 1.4); myFlash.castShadow = false;
+scene.add(myFlash, myFlash.target);
+function updateMyFlash() {
+  const on = HUNT && started && H.flash && !P.hidden && !H.dead;
+  myFlash.intensity = on ? 34 : 0;
+  if (!on) return;
+  const lh = inVR ? vrHands.find(h => h.side === 'left' && h.active) : null;
+  const from = lh ? lh.pos : headPos(), q = lh ? lh.quat : camera.getWorldQuaternion(tq);
+  myFlash.position.copy(from).add(tv.set(inVR ? 0 : 0.18, inVR ? 0 : -0.15, inVR ? -0.08 : 0).applyQuaternion(q));
+  myFlash.target.position.copy(myFlash.position).add(tv.copy(NEG_Z).applyQuaternion(q).multiplyScalar(4)); myFlash.target.updateMatrixWorld();
+}
+
+// ---- things lying about: keys, a battery, a gas can, toolkits, first aid, a flare gun, a shotgun
+const ITEM = {
+  carKeys: { name: 'the car keys', short: 'car keys', col: 0xc8a850 }, gateKey: { name: 'the padlock key', short: 'gate key', col: 0x9a9a9a },
+  boatKeys: { name: 'the boat keys', short: 'boat keys', col: 0x3a6aa0 }, battery: { name: 'a car battery', short: 'battery' }, gas: { name: 'a can of gas', short: 'gas' },
+  toolkit: { name: 'a toolkit', short: 'toolkit' }, medkit: { name: 'a first aid kit', short: 'first aid' },
+  flare: { name: 'a flare gun', short: 'flare gun', gun: true, ammo: 1 }, shotgun: { name: 'a shotgun', short: 'shotgun', gun: true, ammo: 2 },
+};
+const items = [];
+const itemMat = { red: new THREE.MeshLambertMaterial({ color: 0x9a1a14 }), black: new THREE.MeshLambertMaterial({ color: 0x141414 }), metal: new THREE.MeshLambertMaterial({ color: 0x8a8e92 }), white: new THREE.MeshLambertMaterial({ color: 0xd8d4c8 }), wood: new THREE.MeshLambertMaterial({ color: 0x5a3a22 }), orange: new THREE.MeshLambertMaterial({ color: 0xd0601a }), green: new THREE.MeshLambertMaterial({ color: 0x2a4a2a }) };
+function itemMesh(kind) {
+  const g = new THREE.Group(), b = (mat, w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); g.add(m); return m; };
+  if (kind.endsWith('Keys') || kind === 'gateKey') {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.003, 4, 12), itemMat.metal); ring.rotation.x = Math.PI / 2; ring.position.y = 0.004; g.add(ring);
+    for (let i = 0; i < (kind === 'gateKey' ? 1 : 2); i++) { const k = b(new THREE.MeshLambertMaterial({ color: ITEM[kind].col }), 0.012, 0.003, 0.05, 0.02 + i * 0.012, 0.004, 0.03); k.rotation.y = i * 0.4; }
+    if (kind === 'carKeys') b(itemMat.black, 0.022, 0.008, 0.03, -0.02, 0.006, -0.02);
+    if (kind === 'boatKeys') { const f = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), itemMat.orange); f.position.set(-0.025, 0.012, 0); g.add(f); }
+  } else if (kind === 'battery') { b(itemMat.black, 0.26, 0.18, 0.17, 0, 0.09, 0); b(itemMat.red, 0.03, 0.03, 0.03, -0.08, 0.195, 0); b(itemMat.metal, 0.03, 0.03, 0.03, 0.08, 0.195, 0); }
+  else if (kind === 'gas') { b(itemMat.red, 0.28, 0.32, 0.14, 0, 0.16, 0); b(itemMat.red, 0.03, 0.03, 0.12, 0.08, 0.34, 0); b(itemMat.black, 0.14, 0.03, 0.03, -0.04, 0.35, 0); }
+  else if (kind === 'toolkit') { b(itemMat.red, 0.42, 0.14, 0.18, 0, 0.07, 0); b(itemMat.black, 0.2, 0.025, 0.025, 0, 0.17, 0); b(itemMat.metal, 0.43, 0.01, 0.19, 0, 0.11, 0); }
+  else if (kind === 'medkit') { b(itemMat.white, 0.26, 0.1, 0.18, 0, 0.05, 0); b(itemMat.red, 0.1, 0.012, 0.03, 0, 0.105, 0); b(itemMat.red, 0.03, 0.012, 0.1, 0, 0.105, 0); }
+  else if (kind === 'flare') { b(itemMat.orange, 0.04, 0.05, 0.2, 0, 0.03, -0.04); b(itemMat.orange, 0.035, 0.11, 0.045, 0, 0.0, 0.06); const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.16, 10), itemMat.orange); bar.rotation.x = Math.PI / 2; bar.position.set(0, 0.04, -0.1); g.add(bar); }
+  else if (kind === 'shotgun') { const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.62, 8), itemMat.black); bar.rotation.x = Math.PI / 2; bar.position.set(0, 0.03, -0.32); g.add(bar); b(itemMat.wood, 0.045, 0.06, 0.22, 0, 0.02, -0.12); b(itemMat.wood, 0.04, 0.09, 0.3, 0, -0.02, 0.14); b(itemMat.metal, 0.04, 0.05, 0.1, 0, 0.03, 0.0); }
+  return g;
+}
+function clearItems() { for (const it of items) { scene.remove(it.mesh); scene.remove(it.glint); } items.length = 0; }
+function spawnItems() {
+  clearItems();
+  const want = ['carKeys', 'gateKey', 'boatKeys', 'gas', 'toolkit', 'toolkit', 'medkit', 'medkit', 'medkit'];
+  if (['higgins', 'pinehurst', 'jarvis'].includes(AREA.id)) want.push('battery');
+  if (Math.random() < 0.75) want.push('flare');
+  if (Math.random() < 0.4) want.push('shotgun');
+  const spots = [...SURFACES].sort(() => Math.random() - 0.5);
+  for (const kind of want) {
+    // the important things well away from each other, and not where you start
+    let s = spots.find(p => !p.used && items.every(o => Math.hypot(o.x - p.x, o.z - p.z) > (ITEM[kind].gun || kind.endsWith('Keys') || kind === 'gateKey' ? 14 : 5)) && Math.hypot(p.x - (H.startAt?.x ?? 999), p.z - (H.startAt?.z ?? 999)) > 6);
+    s ??= spots.find(p => !p.used);
+    if (!s) break;
+    s.used = true;
+    const mesh = itemMesh(kind); mesh.position.set(s.x + rand(-0.2, 0.2), s.y + 0.005, s.z + rand(-0.15, 0.15)); mesh.rotation.y = rand(0, 6.3); scene.add(mesh);
+    const glint = new THREE.Sprite(glintMat); glint.scale.setScalar(0.12); glint.position.copy(mesh.position).y += 0.12; scene.add(glint);
+    items.push({ kind, mesh, glint, x: mesh.position.x, y: mesh.position.y, z: mesh.position.z, ammo: ITEM[kind].ammo ?? 0 });
+  }
+  for (const s of SURFACES) s.used = false;
+}
+const has = k => (H.items.get(k) ?? 0) > 0;
+function give(k, n = 1) { H.items.set(k, (H.items.get(k) ?? 0) + n); }
+function take(k) { H.items.set(k, Math.max(0, (H.items.get(k) ?? 0) - 1)); }
+// what you're reaching for: in VR your hand, on desktop what's in front of you
+function reachPoint(h) { return inVR ? h.pos : tv3.copy(headPos()).add(tv.copy(NEG_Z).applyQuaternion(camera.getWorldQuaternion(tq)).multiplyScalar(0.9)); }
+function nearestItem(h) {
+  let best = null, bd = 1e9;
+  if (inVR) { for (const it of items) { const d = Math.hypot(it.x - h.pos.x, it.y - h.pos.y, it.z - h.pos.z); if (d < 0.35 && d < bd) { bd = d; best = it; } } return best; }
+  // desktop: anything close to where you're looking, within arm's reach
+  const o = headPos(), f = tv.copy(NEG_Z).applyQuaternion(camera.getWorldQuaternion(tq));
+  for (const it of items) {
+    const dx = it.x - o.x, dy = it.y - o.y, dz = it.z - o.z, along = dx * f.x + dy * f.y + dz * f.z;
+    if (along < 0.1 || along > 2.4) continue;
+    const off = Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - along * along));
+    if (off < 0.25 + along * 0.15 && off + along * 0.1 < bd) { bd = off + along * 0.1; best = it; }
+  }
+  return best;
+}
+function pickUp(h, it) {
+  items.splice(items.indexOf(it), 1); scene.remove(it.glint);
+  const def = ITEM[it.kind];
+  if (def.gun) {
+    if (h.held || h.gun) { items.push(it); scene.add(it.glint); caption('Your hand is full.', 1.5); return; }
+    h.gun = it; it.mesh.position.set(0, 0, 0); it.mesh.rotation.set(0, 0, 0); h.glove.add(it.mesh); it.mesh.position.set(0, -0.02, -0.04);
+    caption(`You've got ${def.name}.`, 2.5, it.kind === 'shotgun' ? 'Two shells. Trigger to fire.' : 'One flare. Trigger to fire.');
+  } else {
+    scene.remove(it.mesh);
+    if (it.kind === 'medkit' && H.hits > 0) { H.hits--; caption('You patch yourself up.', 2.5); sfx.slurp?.(headPos()); }
+    else { give(it.kind); caption(`You found ${def.name}.`, 2.5, hint(it.kind)); }
+  }
+  sfx.draw(); pulse(h, 0.4, 40); noise(it.mesh.position, 2);
+}
+const hint = k => ({ carKeys: CAR.van ? 'The van is by the road.' : 'The car is by the road.', gateKey: 'The gate on the road is padlocked.', boatKeys: 'There\'s a boat at the end of the dock.', gas: 'For the boat.', battery: 'The car\'s battery is dead.', toolkit: 'It\'ll fix a cut phone line, or the generator.', medkit: 'Press H (or X) when you\'re hurt.' })[k] ?? '';
+
+// ---- the boat at the end of the dock
+let boat = null;
+{
+  const g = new THREE.Group(), hull = new THREE.MeshLambertMaterial({ color: 0xd8d4c8 }), trim = new THREE.MeshLambertMaterial({ color: 0x2a4a6a });
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), hull); shell.scale.set(0.8, 0.45, 2.2); shell.rotation.x = Math.PI; shell.position.y = 0.1; g.add(shell);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.04, 6, 24), trim); rim.scale.set(0.8, 2.2, 1); rim.rotation.x = Math.PI / 2; rim.position.y = 0.1; g.add(rim);
+  const motor = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.45, 0.3), new THREE.MeshLambertMaterial({ color: 0x1a1a1a })); motor.position.set(0, 0.3, -2.2); g.add(motor);
+  g.position.set(DOCK.x1 + 1.1, WATER_Y, DOCK.z0 + 3); scene.add(g); boat = g;
+}
+
+// ---- jobs that take a while: you stay put and it makes noise
+function startTask(kind, secs, at, done, sound) {
+  if (H.task) return;
+  H.task = { kind, secs, t: 0, at: { x: at.x, z: at.z }, done, sound, soundT: 0 };
+  caption(kind, secs, 'Stay here...');
+}
+function updateTask(dt) {
+  const T = H.task; if (!T) return;
+  const me = headPos();
+  if (Math.hypot(me.x - T.at.x, me.z - T.at.z) > 2.2 || P.hidden || H.dead) { H.task = null; caption('You stopped.', 1.5); return; }
+  T.t += dt; T.soundT -= dt;
+  if (T.soundT <= 0) { T.soundT = 1.2; T.sound?.(); noise(tv3.set(T.at.x, 0.5, T.at.z), T.kind.includes('car') ? 22 : 11); }
+  if (T.t >= T.secs) { H.task = null; T.done(); }
+}
+// the things you can use: the car, the gate, the boat, the phone, the junction box, the generator
+function interact(h) {
+  const at = reachPoint(h), me = headPos();
+  const near = (x, z, r = 1.8) => Math.hypot(me.x - x, me.z - z) < r || Math.hypot(at.x - x, at.z - z) < r * 0.8;
+  const front = carFront(new V3());
+  if (!RUN.carGone && near(front.x, front.z, 1.6) && !H.battery && ['higgins', 'pinehurst', 'jarvis'].includes(AREA.id)) {
+    if (!has('battery')) { caption('The battery\'s dead.', 2.5, 'There must be another one somewhere.'); return true; }
+    startTask('Putting the battery in', 4, front, () => { take('battery'); H.battery = true; caption('The battery\'s in.', 2.5); }, () => sfx.clank(front)); return true;
+  }
+  if (!RUN.carGone && near(CAR.door.x, CAR.door.z, 1.8)) {
+    if (!has('carKeys')) { caption('It\'s locked. No keys.', 2.5); sfx.clank(tv3.set(CAR.door.x, 1, CAR.door.z)); return true; }
+    if (['higgins', 'pinehurst', 'jarvis'].includes(AREA.id) && !H.battery) { caption('Nothing. Not even a click.', 2.5, 'The battery\'s dead.'); return true; }
+    startTask('Starting the car', 6, CAR.door, () => escapeBy('car'), () => sfx.crank(CAR)); return true;
+  }
+  if (!GATE.open && near(GATE.x, FENCE - 0.6, 2.2)) {
+    if (!has('gateKey')) { caption('Padlocked.', 2, 'You need the key.'); sfx.clank(tv3.set(GATE.x, 1.2, FENCE)); return true; }
+    startTask('Unlocking the gate', 3, { x: GATE.x, z: FENCE - 0.6 }, () => { take('gateKey'); GATE.open = true; GATE.box.min.y = -10; GATE.box.max.y = -9; for (const m of GATE.lock) m.visible = false; sfx.clank(tv3.set(GATE.x, 1.2, FENCE)); caption('The gate\'s open. RUN.', 3); }, () => sfx.clank(tv3.set(GATE.x, 1.2, FENCE))); return true;
+  }
+  if (near(boat.position.x, boat.position.z, 2.4)) {
+    if (!has('boatKeys') || !has('gas')) { caption(has('boatKeys') ? 'The tank\'s empty.' : 'The boat needs keys.', 2.5, has('boatKeys') ? 'Find some gas.' : has('gas') ? '' : 'And gas.'); return true; }
+    startTask('Starting the boat', 6, { x: DOCK.x1 - 0.3, z: boat.position.z }, () => escapeBy('boat'), () => sfx.engine(boat.position)); return true;
+  }
+  if (near(PHONE.stand.x, PHONE.stand.z, 1.4)) {
+    if (PHONE.cut) { caption('The line\'s dead.', 2.5, 'He cut it. The junction box is on the sign by the road.'); return true; }
+    if (RUN.calledAt >= 0) { caption('They\'re coming.', 2); return true; }
+    startTask('Calling the police', 8, PHONE.stand, () => { RUN.calledAt = RUN.t; RUN.policeAt = RUN.t + 70; caption('The police are coming.', 4, 'Stay alive. Get to them at the gate.'); score.stinger(); }, () => sfx.dial(PHONE)); return true;
+  }
+  if (PHONE.cut && near(JUNCTION.x, JUNCTION.z - 0.5, 1.8)) {
+    if (!has('toolkit')) { caption('The wires are cut.', 2.5, 'You need a toolkit.'); return true; }
+    startTask('Splicing the phone line', 7, { x: JUNCTION.x, z: JUNCTION.z - 0.5 }, () => { take('toolkit'); PHONE.cut = false; JUNCTION.hp = 2; JUNCTION.wire.visible = true; JUNCTION.led.material.color.setHex(0xff2a10); caption('The phone line\'s back.', 3); }, () => sparks(jpos())); return true;
+  }
+  if (!GENERATOR.on && near(GENERATOR.x, GENERATOR.z, 1.8)) {
+    if (!has('toolkit')) { caption('He\'s wrecked the generator.', 2.5, 'You need a toolkit.'); return true; }
+    startTask('Fixing the generator', 7, GENERATOR, () => { take('toolkit'); GENERATOR.on = true; GENERATOR.hp = 3; camp.setPower(true); sfx.engine(tv3.set(GENERATOR.x, 0.5, GENERATOR.z)); caption('The lights are back.', 3); }, () => sfx.clank(tv3.set(GENERATOR.x, 0.6, GENERATOR.z))); return true;
+  }
+  return false;
+}
+// grip / E as a counselor: hide or come out, pick something up, use something, or grab a weapon as usual
+function huntGrab(h) {
+  if (P.hidden) { leaveHide(); return true; }
+  const it = nearestItem(h); if (it) { pickUp(h, it); return true; }
+  if (h.gun) { dropGun(h); return true; }
+  if (interact(h)) return true;
+  const sp = spotNearHand(h, false);
+  if (sp && !sp.occ && !h.held) { enterHide(sp); return true; }
+  if (sp?.occ && sp.occ !== 'player') { caption('Someone\'s already in there.', 1.5, '"Go away... please..."'); return true; }
+  return false;
+}
+function dropGun(h) {
+  const it = h.gun; h.gun = null; h.glove.remove(it.mesh);
+  if (it.ammo <= 0) return;
+  const at = reachPoint(h); it.mesh.position.set(at.x, groundAt(at.x, at.z) + 0.03, at.z); it.x = at.x; it.y = it.mesh.position.y; it.z = at.z; scene.add(it.mesh); scene.add(it.glint); it.glint.position.copy(it.mesh.position).y += 0.12; items.push(it);
+}
+function enterHide(sp) {
+  if (H.task) H.task = null;
+  for (const h of hands()) if (h.held) drop(h);
+  P.hidden = sp; sp.occ = 'player'; flingSpot(sp, 0.45); P.peek = 0;
+  // did he see you get in?
+  if (JN && hunterSees(headPos())) JN.ai.sawHide = sp;
+  const e = spotEye(sp);
+  if (!inVR) { deskYaw = e.look; deskPitch = sp.kind === 'underbed' ? 0 : -0.05; }
+  else { rig.rotation.y = e.look; rig.updateMatrixWorld(true); }
+  noise(tv3.set(sp.x, 1, sp.z), 2.5);
+}
+function leaveHide() {
+  const sp = P.hidden; if (!sp) return;
+  P.hidden = null; sp.occ = null; flingSpot(sp, 0.6);
+  const h = headPos(); rig.position.x += sp.out.x - h.x; rig.position.z += sp.out.z - h.z;
+  P.y = groundAt(sp.out.x, sp.out.z) + S.height; rig.position.y = P.y; if (!inVR) camera.position.y = 1.75;
+  noise(tv3.set(sp.x, 1, sp.z), 3);
+}
+// keep your eyes in the hiding place; lean toward the crack to see more of the room
+function updatePlayerHide(dt) {
+  const sp = P.hidden;
+  if (!sp) { updateCrack(0); return; }
+  const e = spotEye(sp), f = spotFacing(sp), dir = sp.kind === 'hay' ? { x: -f.x, z: -f.z } : f;
+  let lean;
+  if (inVR) {
+    const h = headPos(); lean = Math.max(0, Math.min(0.14, (h.x - e.x) * dir.x + (h.z - e.z) * dir.z));
+    rig.position.x += e.x + dir.x * lean - h.x; rig.position.z += e.z + dir.z * lean - h.z; rig.position.y += e.y - h.y + (sp.kind === 'hay' ? lean * 2 : 0);
+    lean /= 0.14;
+  } else {
+    P.peek = Math.max(0, Math.min(1, (P.peek ?? 0) + (keys.KeyW ? dt * 3 : -dt * 3))); lean = P.peek;
+    camera.position.set(0, 0, 0); rig.position.set(e.x + dir.x * lean * 0.12, e.y + (sp.kind === 'hay' ? lean * 0.3 : 0), e.z + dir.z * lean * 0.12);
+    deskYaw = e.look + Math.max(-0.75, Math.min(0.75, angDiff(deskYaw, e.look)));
+    camera.rotation.set(deskPitch, deskYaw, 0);
+  }
+  updateCrack(lean);
+  // your own breathing, loud in the dark; harder the closer he is
+  const jd = JN ? Math.hypot(JN.root.x - sp.x, JN.root.z - sp.z) : 99;
+  if (Math.random() < dt * (0.25 + Math.max(0, 1 - jd / 8) * 0.9)) sfx.breath(tv3.set(sp.x, e.y, sp.z), false);
+}
+
+// ---- getting hurt, dying, getting out
+function playerHit(from) {
+  if (H.dead || H.won) return;
+  H.hits++; P.hurtT = 0.3; P.lastHit = RUN.t;
+  sfx.chop(true, headPos()); sfx.squelch(headPos()); sfx.impact(); for (const h of hands()) pulse(h, 1, 220);
+  maskBlood(headPos(), 0.6); hitStop(0.12);
+  // knocked back away from him
+  const me = headPos(), ax = me.x - from.x, az = me.z - from.z, l = Math.hypot(ax, az) || 1;
+  const [nx, nz] = collide(me.x + ax / l * 1.3, me.z + az / l * 1.3);
+  rig.position.x += nx - me.x; rig.position.z += nz - me.z;
+  if (H.hits >= H.maxHits) playerDies();
+  else caption(H.hits === 1 ? 'He cut you.' : 'One more and you\'re dead.', 2, has('medkit') ? 'H (or X): first aid' : '');
+}
+function useMedkit() {
+  if (!HUNT || !has('medkit') || H.hits <= 0 || H.dead) return;
+  take('medkit'); H.hits--; caption('You bandage it, hands shaking.', 2.5); sfx.slop?.(headPos());
+}
+function playerDies() {
+  H.dead = true; H.task = null; P.hidden = null; updateCrack(0);
+  score.setMood('witness'); score.stinger(true); sting();
+  jumpscare();
+  setTimeout(() => {
+    paused = true;
+    openMenu('YOU DIED', [`${AREA.name}. Night ${RUN.night}.`, `You lasted ${Math.floor(RUN.t / 60)}m ${Math.floor(RUN.t % 60)}s.`, '', ...RUN.kills.map(k => `${k.name} — ${k.how}`)], [
+      { label: 'Try again', act: () => { closeMenu(); paused = false; startNight(RUN.night); } },
+      { label: 'Back to the title', act: () => location.reload() },
+    ]);
+  }, 2600);
+}
+// (a fuller set of these is coming: for now, he's simply there, right in your face)
+let scare = null;
+function jumpscare() {
+  if (!JN) return;
+  const me = headPos(), f = tv.copy(NEG_Z).applyQuaternion(camera.getWorldQuaternion(tq)); f.y = 0; f.normalize();
+  scare = { t: 0 };
+  JN.ragdoll(0); JN.mode = 'anim'; JN.root.x = me.x + f.x * 0.75; JN.root.z = me.z + f.z * 0.75; JN.yaw = Math.atan2(-f.x, -f.z); JN.face = JN.yaw; JN.goal = null; JN.speed = 0; JN.pose = 'raise'; JN.tilt = 0.6; JN.blend = 1;
+  JN.look = { x: me.x, z: me.z };
+}
+function escapeBy(how) {
+  if (H.won || H.dead) return;
+  H.won = how; score.setMood('safe');
+  if (how === 'car') { RUN.carGone = true; RUN.carDriving = { t: 0 }; CAR.lampMat.color.setHex(0xfff0c0); sfx.engine(CAR); for (const b of CAR.boxes) { b.min.y = -10; b.max.y = -9; } }
+  if (how === 'boat') sfx.engine(boat.position);
+  const said = { car: 'You floored it out of there.', boat: 'The motor caught. You were out on the black water before he reached the dock.', gate: 'You ran out through the gate and didn\'t stop.', police: 'You made it to the police.' }[how];
+  setTimeout(() => {
+    paused = true;
+    const alive = counselors.filter(c => c.alive);
+    openMenu('YOU GOT OUT', [said, `${AREA.name}. Night ${RUN.night}, ${Math.floor(RUN.t / 60)}m ${Math.floor(RUN.t % 60)}s.`, `${alive.length} more made it · ${RUN.kills.length} didn't`, '', ...RUN.kills.map(k => `${k.name} — ${k.how}`)], [
+      { label: `Night ${RUN.night + 1}`, act: () => { closeMenu(); paused = false; startNight(RUN.night + 1); } },
+      { label: 'Back to the title', act: () => location.reload() },
+    ]);
+  }, how === 'gate' || how === 'police' ? 600 : 2600);
+}
+function checkEscapes() {
+  if (H.won || H.dead) return;
+  const me = headPos();
+  if (GATE.open && me.z > FENCE + 0.8 && Math.abs(me.x - GATE.x) < 4) escapeBy('gate');
+  if (RUN.policeHere && police.some(c => c.alive && Math.hypot(c.root.x - me.x, c.root.z - me.z) < 3.5)) escapeBy('police');
+}
+// a gun in your hand: the trigger fires it
+function fireGun(h) {
+  const it = h.gun; if (!it || it.ammo <= 0) return;
+  it.ammo--;
+  it.mesh.updateMatrixWorld(true);
+  const from = new V3().setFromMatrixPosition(it.mesh.matrixWorld), dir = new V3(0, 0, -1).transformDirection(it.mesh.matrixWorld);
+  if (it.kind === 'shotgun') { sfx.gunshot(from); for (const hh of hands()) pulse(hh, 1, 160); }
+  else { sfx.zap(from); sfx.hiss(from); for (let i = 0; i < 20; i++) blood.flame(from.x + dir.x * i * 0.6, from.y + dir.y * i * 0.6, from.z + dir.z * i * 0.6, 0.06, 0.4, false, 0.2); }
+  noise(from, 40);
+  if (JN && JN.alive) {
+    const c = JN.p.chest, to = tv.set(c.x - from.x, c.y - from.y, c.z - from.z), d = to.length();
+    const ang = Math.acos(Math.max(-1, Math.min(1, to.dot(dir) / d)));
+    if (d < (it.kind === 'shotgun' ? 16 : 25) && ang < (it.kind === 'shotgun' ? 0.16 : 0.08) && sightClear(from.x, from.z, c.x, c.z)) {
+      knockdown(it.kind === 'shotgun' ? 6 : 5, dir);
+      blood.spray(c, dir, 30, 3, 0.8);
+      if (it.kind === 'flare') { for (let i = 0; i < 30; i++) blood.flame(c.x, c.y, c.z, 0.08, 1.2, false, 0.4); }
+      caption(it.kind === 'shotgun' ? 'He went down.' : 'The flare hit him square in the chest.', 2.5, 'He\'ll get back up. GO.');
+    }
+  }
+  if (it.ammo <= 0) caption('Empty.', 1.2);
+}
+
+// ============================================================ Jason, hunting
+// Part 4 Jason: the yellowed mask with its red chevrons and the axe crack, the bald,
+// lumpy scalp, the dark work shirt and olive trousers, big and stooped.
+// The mask is sculpted, not a painted egg: a contoured shell with a brow, the bridge of
+// the nose, cheekbones and a chin, and real holes you can see through (the eyes, and the
+// pattern of vents round the mouth and cheeks), the red chevrons worn and chipped.
+const MASK_W = 0.2, MASK_H = 0.28, MASK_Y0 = -0.15;
+const MASK_HOLES = [
+  [0, 0.098], [-0.017, 0.094], [0.017, 0.094], [-0.034, 0.086], [0.034, 0.086], [-0.049, 0.073], [0.049, 0.073], [0, 0.08],
+  ...[1, -1].flatMap(s => [[s * 0.063, 0.032], [s * 0.067, 0.013], [s * 0.05, -0.018], [s * 0.062, -0.034], [s * 0.04, -0.04], [s * 0.052, -0.056], [s * 0.066, -0.052]]),
+  [-0.012, -0.046], [0.012, -0.046], [0, -0.06], [-0.023, -0.061], [0.023, -0.061], [-0.011, -0.075], [0.011, -0.075], [-0.033, -0.074], [0.033, -0.074], [0, -0.089], [-0.022, -0.088], [0.022, -0.088], [-0.011, -0.103], [0.011, -0.103],
+];
+const MASK_EYES = [[-0.031, 0.015, 1], [0.031, 0.015, -1]];
+const MASK_NOSTRILS = [[-0.0075, -0.034], [0.0075, -0.034]];
+const maskTexJ = (() => {
+  const W = 512, Hh = Math.round(512 * MASK_H / MASK_W), c = document.createElement('canvas'); c.width = W; c.height = Hh; const g = c.getContext('2d');
+  const X = x => (x / MASK_W + 0.5) * W, Y = y => (1 - (y - MASK_Y0) / MASK_H) * Hh, S = v => v / MASK_W * W;
+  // old plastic: off-white gone yellow, darker in the hollows and at the edges
+  const gr = g.createRadialGradient(W / 2, Y(0.0), 20, W / 2, Y(0.0), W * 0.62); gr.addColorStop(0, '#ddd4b6'); gr.addColorStop(0.6, '#cbbd96'); gr.addColorStop(1, '#8e7e5c');
+  g.fillStyle = gr; g.fillRect(0, 0, W, Hh);
+  for (let i = 0; i < 5000; i++) { g.fillStyle = `rgba(${80 + Math.random() * 40 | 0},${64 + Math.random() * 30 | 0},${36},${Math.random() * 0.1})`; g.fillRect(Math.random() * W, Math.random() * Hh, 1 + Math.random() * 3, 1 + Math.random() * 3); }
+  for (let i = 0; i < 70; i++) { g.strokeStyle = `rgba(60,48,30,${0.1 + Math.random() * 0.2})`; g.lineWidth = 0.6 + Math.random(); g.beginPath(); const x = Math.random() * W, y = Math.random() * Hh; g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 40, y + (Math.random() - 0.5) * 18); g.stroke(); }   // scuffs
+  // the chevrons: worn red paint, chipped at the edges
+  const chev = (pts, w) => { g.strokeStyle = '#9c2018'; g.lineWidth = S(w); g.lineJoin = 'miter'; g.lineCap = 'butt'; g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y))); g.stroke(); };
+  g.globalAlpha = 0.85;
+  g.fillStyle = '#9c2018'; g.beginPath(); g.moveTo(X(-0.036), Y(0.05)); g.lineTo(X(0), Y(0.066)); g.lineTo(X(0.036), Y(0.05)); g.lineTo(X(0.03), Y(0.045)); g.lineTo(X(0), Y(0.058)); g.lineTo(X(-0.03), Y(0.045)); g.closePath(); g.fill();   // the chevron on the brow
+  for (const s of [-1, 1]) chev([[s * 0.024, -0.012], [s * 0.052, -0.042]], 0.0055);   // the stripes down the cheeks
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = 'destination-over';
+  g.globalCompositeOperation = 'source-over';
+  for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(205,195,165,${0.5 + Math.random() * 0.5})`; const x = X((Math.random() - 0.5) * 0.14), y = Y(Math.random() * 0.13 - 0.03); g.fillRect(x, y, 1 + Math.random() * 3, 1 + Math.random() * 2); }   // paint flaked off
+  // the axe crack, high on his right, and old blood soaked into it
+  g.fillStyle = 'rgba(64,10,6,0.85)'; g.beginPath(); g.ellipse(X(0.045), Y(0.098), S(0.024), S(0.016), 0.5, 0, 7); g.fill();
+  for (let i = 0; i < 7; i++) { g.fillStyle = 'rgba(70,10,6,0.7)'; g.fillRect(X(0.03 + i * 0.004), Y(0.095), S(0.0018), S(0.02 + Math.random() * 0.05)); }
+  g.strokeStyle = '#1a0c06'; g.lineWidth = 3; g.beginPath(); g.moveTo(X(0.058), Y(0.13)); g.lineTo(X(0.046), Y(0.104)); g.lineTo(X(0.054), Y(0.088)); g.lineTo(X(0.04), Y(0.062)); g.stroke();
+  g.fillStyle = 'rgba(40,24,12,0.45)'; for (const [x, y] of [[-0.086, 0.03], [0.086, 0.03], [-0.08, -0.064], [0.08, -0.064], [0, 0.116]]) g.fillRect(X(x) - S(0.006), Y(y) - S(0.01), S(0.012), S(0.02));
+  // and the holes, cut right through (alpha), each with a dark rim of grime
+  const hole = (x, y, rx, ry, rot = 0) => { g.save(); g.translate(X(x), Y(y)); g.rotate(rot); g.fillStyle = 'rgba(40,30,18,0.9)'; g.beginPath(); g.ellipse(0, 0, S(rx) + 3, S(ry) + 3, 0, 0, 7); g.fill(); g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.ellipse(0, 0, S(rx), S(ry), 0, 0, 7); g.fill(); g.restore(); };
+  for (const [x, y, s] of MASK_EYES) hole(x, y, 0.0165, 0.0112, s * 0.22);
+  for (const [x, y] of MASK_HOLES) hole(x, y, 0.0042, 0.0042);
+  for (const [x, y] of MASK_NOSTRILS) hole(x, y, 0.0032, 0.0025);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+})();
+let maskGeoJ = null;
+function buildHockeyMask() {
+  if (!maskGeoJ) {
+    const { ell, cone, sphere } = sd;
+    // the face it was moulded on: brow, deep sockets, cheekbones, the nose, a chin; no lips
+    const face = (x, y, z) => {
+      let d = ell(x, y, z, 0, 0.028, -0.008, 0.081, 0.096, 0.098);
+      d = smin(d, ell(x, y, z, 0, -0.042, 0.026, 0.056, 0.064, 0.072), 0.04);
+      d = smin(d, sphere(x, y, z, 0, -0.094, 0.064, 0.02), 0.035);
+      for (const s of [-1, 1]) {
+        d = smin(d, ell(x, y, z, s * 0.043, -0.014, 0.064, 0.02, 0.015, 0.015), 0.025);
+        d = ssub(d, sphere(x, y, z, s * 0.031, 0.015, 0.104, 0.018), 0.02);
+      }
+      d = smin(d, cone(x, y, z, -0.042, 0.034, 0.084, 0.042, 0.034, 0.084, 0.011, 0.011), 0.02);
+      d = smin(d, cone(x, y, z, 0, 0.014, 0.095, 0, -0.02, 0.109, 0.008, 0.012), 0.012);
+      d = smin(d, sphere(x, y, z, 0, -0.024, 0.106, 0.012), 0.012);
+      return d;
+    };
+    const shell = (x, y, z) => Math.max(Math.abs(face(x, y, z) - 0.012) - 0.0026, 0.03 - z + Math.abs(x) * 0.15, y - 0.112, -0.128 - y, Math.abs(x) - 0.088);
+    const g = mesh(shell, [-0.1, MASK_Y0, 0.0], [0.1, 0.13, 0.14], 0.0022);
+    const p = g.attributes.position, uv = new Float32Array(p.count * 2);
+    for (let i = 0; i < p.count; i++) { uv[i * 2] = p.getX(i) / MASK_W + 0.5; uv[i * 2 + 1] = (p.getY(i) - MASK_Y0) / MASK_H; }
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    maskGeoJ = g;
+  }
+  const grp = new THREE.Group();
+  const m = new THREE.Mesh(maskGeoJ, new THREE.MeshStandardMaterial({ map: maskTexJ, roughness: 0.42, metalness: 0, alphaTest: 0.5, side: THREE.DoubleSide }));
+  grp.add(m);
+  // the black elastic straps round the back of his head
+  const strapM = new THREE.MeshStandardMaterial({ color: 0x0c0b0a, roughness: 0.8 });
+  for (const [y, r] of [[0.03, 1], [-0.06, 0.92]]) { const st = new THREE.Mesh(new THREE.TorusGeometry(0.093 * r, 0.0045, 4, 28, Math.PI * 1.25), strapM); st.rotation.set(Math.PI / 2, 0, Math.PI * 1.125); st.scale.set(1, 1.12, 1); st.position.set(0, y, -0.012); grp.add(st); }
+  return grp;
+}
+function spawnHunter(x, z) {
+  if (JN) { JN.dispose?.(); JN = null; }
+  const skin = 0x8e8270;
+  JN = new Human(scene, sim, blood, { x, z, yaw: 0, scale: 1.19, female: false, skin, hair: 0x7a6e5e, longSleeves: true,
+    look: { skin, hair: 0x7a6e5e, eyes: 0x1a1410, long: false, beard: 0, freckles: true, lipstick: false, seed: 1313 },
+    shirt: 0x2c3328, print: null, pants: 0x4a4232, shorts: false, shoes: 0x1c1610, build: 1, hp: 1e9, kind: 'jason' });
+  JN.menace = true; JN.name = 'JASON';
+  for (const [k, sx, sz] of [['torso', 1.12, 1.12], ['hips', 1.08, 1.08], ['neck', 1.3, 1.25], ['head', 1.07, 1.07], ['lUpper', 1.2, 1.2], ['rUpper', 1.2, 1.2], ['lFore', 1.14, 1.14], ['rFore', 1.14, 1.14], ['lThigh', 1.1, 1.1], ['rThigh', 1.1, 1.1], ['lHand', 1.12, 1.12], ['rHand', 1.12, 1.12]]) { const g = JN.parts[k].g; g.scale.x *= sx; g.scale.z *= sz; if (k === 'head') g.scale.y *= sx; }
+  const mask = buildHockeyMask();
+  // you never see his eyes: just black behind the holes
+  for (const e of [...(JN.eyes ?? []), ...(JN.lids ?? [])]) e.visible = false;
+  for (const [x, y] of MASK_EYES) { const dark = new THREE.Mesh(new THREE.CircleGeometry(0.024, 16), new THREE.MeshBasicMaterial({ color: 0x000000 })); dark.scale.y = 0.75; dark.position.set(x, y, 0.094); mask.add(dark); }
+  JN.parts.head.g.add(mask); JN.mask = mask;
+  // the shirt: dark charcoal-green work shirt, filthy, old blood down the front
+  { const g = JN.shirtCanvas.getContext('2d'); g.globalCompositeOperation = 'source-over'; g.fillStyle = '#1e221a'; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 2500; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '6,8,5' : '44,48,38'},${Math.random() * 0.2})`; g.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 2, 2 + Math.random() * 5); }
+    for (let i = 0; i < 9; i++) { const x = Math.random() * 256, y = Math.random() * 256, gr = g.createRadialGradient(x, y, 0, x, y, 10 + Math.random() * 30); gr.addColorStop(0, 'rgba(40,6,4,0.7)'); gr.addColorStop(1, 'rgba(40,6,4,0)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256); }
+    g.fillStyle = 'rgba(20,22,16,0.9)'; for (const x of [96, 160]) g.fillRect(x - 20, 60, 40, 3);   // chest pocket flaps
+    JN.shirtT.needsUpdate = true; JN.mats.shirt.color.setHex(0x8a8a80); JN.mats.pants.color.setHex(0x3a3424); }
+  // no hair: a bald, lumpy, scarred scalp
+  JN.parts.head.g.traverse(m => { if (m.isMesh && m.material === JN.mats.hair) m.visible = false; });
+  // the scalp: bald, blotched, the colour of something left in the water
+  const blade = buildWeapon('machete'); blade.scale.setScalar(1 / 1.19); JN.parts.rHand.g.add(blade); JN.blade = blade;
+  blade.position.set(0, 0.06, 0.02); blade.rotation.set(Math.PI / 2, 0, 0);
+  JN.ai = { state: 'stalk', route: null, routeT: 0, routeTo: { x: 0, z: 0 }, cd: 0, lungeT: 0, lungeCd: 4, stun: 0, immune: 0, hitsTaken: 0, hitWindow: 0, lastSeen: null, lastSeenT: -99, heard: null, checks: [], wait: 0, victim: null, killT: 0,
+    phoneAt: rand(35, 90), powerAt: rand(130, 220), patrol: null, patrolT: 0, stepAcc: 0, breathT: 0, sawPlayer: false, stare: 0 };
+  JN.scared = true;
+}
+// can he see this point? a wide, patient look, and flashlights give you away
+function hunterSees(p, flash = false) {
+  if (!JN || JN.mode !== 'anim') return false;
+  const e = JN.p.head, dx = p.x - e.x, dz = p.z - e.z, d = Math.hypot(dx, dz);
+  const range = flash ? 34 : 17;
+  if (d > range) return false;
+  if (d > 2.2 && (Math.sin(JN.yaw) * dx + Math.cos(JN.yaw) * dz) / d < -0.15) return false;   // about 200 degrees
+  return sightClear(e.x, e.z, p.x, p.z);
+}
+function hunterHear(at, radius) {
+  if (!JN) return;
+  const d = Math.hypot(at.x - JN.root.x, at.z - JN.root.z);
+  if (d < radius * 1.6) JN.ai.heard = { x: at.x, z: at.z, t: RUN.t };
+}
+function knockdown(secs, dir) {
+  const a = JN.ai;
+  releaseVictim();
+  JN.ragdoll(secs); JN.downT = secs;
+  if (dir) for (const k of ['chest', 'neck', 'head']) JN.p[k].addVel(dir.x * 4, 1, dir.z * 4);
+  a.state = 'down'; a.immune = RUN.t + secs + 5; a.hitsTaken = 0;
+  sfx.bodyfall(JN.p.chest);
+}
+// you hit him: he staggers; hit him enough and he goes down for a few seconds
+function hunterMelee(h, t, speed) {
+  if (!JN || JN.mode !== 'anim' || (JN.cutCd ?? 0) > performance.now()) return;
+  const hit = JN.partAt(bladeA, h.tip, 0.05) ?? JN.partAt(h.prevTip, h.tip, 0.04);
+  if (!hit) return;
+  JN.cutCd = performance.now() + 450;
+  const a = JN.ai, def = t.def, at = tv2.copy(h.tip), dirN = tv.copy(tipVel).normalize();
+  if (def.blunt) sfx.thud(at); else { sfx.chop(def.heavy, at); blood.spray(at, dirN, 12, 2, 0.6); }
+  pulse(h, 1, 90); hitStop(0.06);
+  JN.flinch = { t: 0.45, k: 0.09 + (def.heavy ? 0.06 : 0), x: dirN.x, z: dirN.z };
+  if (RUN.t > a.hitWindow) a.hitsTaken = 0;
+  a.hitsTaken += def.heavy || def.blunt ? 2 : 1; a.hitWindow = RUN.t + 12;
+  releaseVictim();
+  if (a.hitsTaken >= 4 && RUN.t > a.immune) { knockdown(def.heavy ? 4.5 : 3.2, dirN); caption('He went down!', 2, 'Run.'); }
+  else { a.state = 'stagger'; a.stun = def.heavy ? 1.3 : 0.9; JN.pose = 'idle'; }
+  a.lastSeen = { x: headPos().x, z: headPos().z }; a.lastSeenT = RUN.t; a.target = 'player';
+}
+function releaseVictim() {
+  const a = JN?.ai, v = a?.victim; if (!v) return;
+  a.victim = null;
+  const p = v.p.neck; p.locked = false; p.hand = null; v.held = Math.max(0, v.held - 1); v.choked = false;
+  if (v.alive) { v.downT = 1.2; if (v.ai) { v.ai.seen = true; chooseFlight(v); } say(v, 'gasp'); }
+}
+// how he finishes them
+const FINISH = [
+  d => { d.decapitate(1.4, d.p.neck, new V3(1, 0.1, 0)); return 'machete through the neck'; },
+  d => { d.halve(new V3((d.p.spine.x + d.p.chest.x) / 2, (d.p.spine.y + d.p.chest.y) / 2, (d.p.spine.z + d.p.chest.z) / 2), new V3(0.15, 1, 0.1).normalize(), 'torso'); return 'cut in half'; },
+  d => { d.hit('torso', new V3(d.p.chest.x, d.p.chest.y - 0.1, d.p.chest.z), new V3(0, 0, 1), 'stab', 200); d.disembowel?.(); if (d.alive) d.die(); d.cause = 'stab'; return 'gutted'; },
+  d => { d.crushHead(); if (d.alive) d.die(); return 'head crushed in one hand'; },
+];
+let hunterStep = 0;
+function updateHunter(dt) {
+  const J = JN; if (!J) return;
+  const a = J.ai, me = J.root, P0 = headPos();
+  J.update(dt, groundAt, pushRoot);
+  if (scare) { scare.t += dt; J.pose = scare.t < 0.25 ? 'raise' : 'strike'; return; }
+  if (J.mode !== 'anim') { J.pose = 'idle'; a.state = 'down'; return; }
+  if (a.state === 'down') { a.state = 'search'; a.wait = 0; J.tilt = 0.4; }
+  J.tilt = (J.tilt ?? 0) * (1 - dt * 0.4);
+  // heavy steps, heavy breathing
+  a.stepAcc += J.speed * dt;
+  if (a.stepAcc > 0.9) { a.stepAcc = 0; const f = tv3.set(me.x, groundAt(me.x, me.z), me.z); sfx.step(f, 0.32); }
+  const pd = Math.hypot(P0.x - me.x, P0.z - me.z);
+  if ((a.breathT -= dt) <= 0) { a.breathT = rand(2.5, 4.5); if (pd < 9) sfx.breath(J.p.head, false); }
+  if (a.stun > 0) { a.stun -= dt; J.goal = null; J.speed *= 0.8; return; }
+  if (a.stare > 0) { a.stare -= dt; J.goal = null; J.pose = 'idle'; J.tilt = 0.7; if (a.lastSeen) J.face = Math.atan2(a.lastSeen.x - me.x, a.lastSeen.z - me.z); return; }
+  // ---- what he can see
+  const playerVisible = !H.dead && !H.won && !P.hidden && hunterSees(P0, H.flash);
+  if (playerVisible) {
+    if (!a.sawPlayer || RUN.t - a.lastSeenT > 12) { a.sawPlayer = true; if (pd > 7) { a.stare = rand(0.9, 1.6); score.stinger(); } }
+    a.lastSeen = { x: P0.x, z: P0.z }; a.lastSeenT = RUN.t; a.target = 'player';
+    if (!['attack', 'kill', 'objective'].includes(a.state) || (a.state === 'objective' && pd < 14)) a.state = 'chase';
+  }
+  if (a.state !== 'kill' && a.state !== 'attack' && !playerVisible && RUN.t - a.lastSeenT > 6) {
+    // someone else he can see?
+    let best = null, bd = 18;
+    for (const d of counselors) { if (!d.alive || d.hiddenIn || d.held || d.mode !== 'anim') continue; const q = d.p.chest, dd = Math.hypot(q.x - me.x, q.z - me.z); if (dd < bd && hunterSees(q, d.flash?.visible)) { bd = dd; best = d; } }
+    if (best && (a.state !== 'chase' || a.target !== best)) { a.target = best; a.state = 'chase'; }
+  }
+  // ---- deciding
+  const tgtPos = a.target === 'player' ? P0 : a.target?.p?.chest;
+  switch (a.state) {
+    case 'stalk': {
+      J.wantSpeed = 1.25; J.pose = 'idle';
+      // jobs first: the phone line, then the power
+      if (!PHONE.cut && RUN.t > a.phoneAt) { a.state = 'objective'; a.job = 'phone'; break; }
+      if (GENERATOR.on && RUN.t > a.powerAt) { a.state = 'objective'; a.job = 'power'; break; }
+      if (a.heard && RUN.t - a.heard.t < 8) { a.lastSeen = { x: a.heard.x, z: a.heard.z }; a.heard = null; a.state = 'search'; a.wait = 0; a.checks = []; break; }
+      // guarding the way out once you've got what you need
+      if (has('carKeys') && !RUN.carGone && Math.hypot(P0.x - CAR.x, P0.z - CAR.z) < 30 && Math.random() < dt * 0.2) { a.patrol = { x: CAR.door.x + rand(-3, 3), z: CAR.door.z + rand(-3, 3) }; a.patrolT = 25; }
+      if (!a.patrol || (a.patrolT -= dt) <= 0 || goTo(J, a.patrol.x, a.patrol.z, dt)) {
+        // somewhere a person might be: a building near where he last had you, or (when it's been quiet too long) near you anyway
+        const quiet = RUN.t - Math.max(a.lastSeenT, a.heard?.t ?? -99) > 45;
+        const around = quiet ? P0 : a.lastSeen ?? P0;
+        const opts = [...BUILDINGS.map(b => b.door), ...SPOTS.filter(s => s.kind === 'fire' || s.kind === 'dock' || s.kind === 'porch')].filter(p => Math.hypot(p.x - around.x, p.z - around.z) < (quiet ? 22 : 40));
+        const p = opts.length ? pick(opts) : pick(SPOTS);
+        a.patrol = { x: p.x + rand(-1.5, 1.5), z: p.z + rand(-1.5, 1.5) }; a.patrolT = 40;
+      }
+      break;
+    }
+    case 'objective': {
+      J.wantSpeed = 1.6;
+      const T = a.job === 'phone' ? { x: JUNCTION.x + 0.2, z: JUNCTION.z - 0.9 } : { x: GENERATOR.x, z: GENERATOR.z - 1.0 };
+      if ((a.job === 'phone' && PHONE.cut) || (a.job === 'power' && !GENERATOR.on)) { a.state = 'stalk'; break; }
+      if (goTo(J, T.x, T.z, dt)) {
+        J.goal = null; J.face = Math.atan2((a.job === 'phone' ? JUNCTION.x : GENERATOR.x) - me.x, (a.job === 'phone' ? JUNCTION.z : GENERATOR.z) - me.z);
+        a.wait += dt; J.pose = a.wait % 1.2 < 0.6 ? 'raise' : 'strike';
+        if (a.wait % 1.2 < dt) { const at = a.job === 'phone' ? jpos() : tv3.set(GENERATOR.x, 0.6, GENERATOR.z); sfx.clank(at); sparks(at); }
+        if (a.wait > 3.4) { a.wait = 0; if (a.job === 'phone') cutPhone(); else killPower(); a.state = 'stalk'; J.pose = 'idle'; if (!a.sawPlayer) caption(a.job === 'phone' ? 'Somewhere out by the road, something metal is being smashed.' : 'The lights die.', 3); }
+      }
+      break;
+    }
+    case 'chase': {
+      if (!tgtPos || (a.target !== 'player' && (!a.target.alive || a.target.hiddenIn))) { a.state = 'search'; a.wait = 0; break; }
+      const d = Math.hypot(tgtPos.x - me.x, tgtPos.z - me.z), sees = a.target === 'player' ? playerVisible : hunterSees(tgtPos);
+      if (!sees && RUN.t - a.lastSeenT > 1.5 && a.target === 'player') { a.state = 'search'; a.wait = 0; a.checks = []; break; }
+      J.pose = 'idle';
+      // he walks. Then, when you're close enough, he's suddenly much closer.
+      a.lungeCd -= dt;
+      if (a.lungeT > 0) { a.lungeT -= dt; J.wantSpeed = 4.4; }
+      else if (sees && d > 2.4 && d < 8 && a.lungeCd <= 0) { a.lungeT = rand(0.9, 1.3); a.lungeCd = rand(5, 8); sfx.breath(J.p.head, false); }
+      else J.wantSpeed = d > 14 ? 2.1 : 1.6;
+      J.goal = sees && d < 6 ? { x: tgtPos.x, z: tgtPos.z } : null;
+      if (!J.goal) goTo(J, tgtPos.x, tgtPos.z, dt);
+      J.look = { x: tgtPos.x, z: tgtPos.z };
+      if (a.target === 'player' && d < 1.7 && sees) { a.state = 'attack'; a.atkT = 0; }
+      else if (a.target !== 'player' && d < 1.25) grabVictim(a.target);
+      break;
+    }
+    case 'attack': {
+      // up goes the machete... and down
+      a.atkT += dt; J.goal = null; J.face = Math.atan2(P0.x - me.x, P0.z - me.z); J.look = { x: P0.x, z: P0.z };
+      J.pose = a.atkT < 0.55 ? 'raise' : 'strike';
+      if (a.atkT >= 0.55 && !a.struck) {
+        a.struck = true;
+        const d = Math.hypot(P0.x - me.x, P0.z - me.z), facing = (Math.sin(J.yaw) * (P0.x - me.x) + Math.cos(J.yaw) * (P0.z - me.z)) / (d || 1);
+        if (d < 2.0 && facing > 0.4 && !P.hidden) playerHit(me); else sfx.whiz();
+      }
+      if (a.atkT > 1.3) { a.struck = false; a.state = 'chase'; }
+      break;
+    }
+    case 'kill': {
+      const v = a.victim; if (!v) { a.state = 'stalk'; break; }
+      a.killT += dt; J.goal = null; J.pose = a.killT < 2.2 ? 'choke' : a.killT < 2.6 ? 'raise' : 'strike';
+      J.face = Math.atan2(v.p.chest.x - me.x, v.p.chest.z - me.z);
+      // he holds them up by the throat in front of him
+      const hx = me.x + Math.sin(J.yaw) * 0.62, hz = me.z + Math.cos(J.yaw) * 0.62;
+      v.p.neck.moveTo(hx, groundAt(me.x, me.z) + 1.72, hz); v.p.neck.locked = true;
+      if (Math.random() < dt * 1.5) say(v, 'choke');
+      if (a.killT > 2.75 && v.alive) {
+        const how = pick(FINISH)(v);
+        sfx.chop(true, v.p.chest); sfx.squelch(v.p.chest); sfx.gush?.(v.p.chest); blood.spray(v.p.chest, tv.set(0, 0.5, 0), 40, 3, 1);
+        v.cause = v.cause ?? 'machete'; v.killedHow = how;
+        if (v.alive) v.die();
+        if (Math.hypot(P0.x - me.x, P0.z - me.z) < 26 && sightClear(P0.x, P0.z, me.x, me.z)) { H.witnessT = RUN.t; score.setMood('witness'); }
+        releaseVictim(); a.stare = 2.2; a.state = 'stalk'; a.patrol = null;
+      }
+      break;
+    }
+    case 'search': {
+      // where he last had you: he looks around, then starts opening things
+      const t = a.lastSeen ?? { x: me.x, z: me.z };
+      J.wantSpeed = 1.5; J.pose = 'idle';
+      if (a.wait === 0 && !goTo(J, t.x, t.z, dt) && Math.hypot(t.x - me.x, t.z - me.z) > 1.7) break;
+      a.wait += dt; J.goal = null;
+      if (a.wait < 2.5) { J.face = J.yaw + Math.sin(a.wait * 2) * 0.8; J.tilt = 0.5; break; }
+      if (!a.checks.length && !a.checked) {
+        a.checked = true;
+        a.checks = HIDING.filter(sp => Math.hypot(sp.x - t.x, sp.z - t.z) < 7).sort((p, q) => Math.hypot(p.x - t.x, p.z - t.z) - Math.hypot(q.x - t.x, q.z - t.z)).slice(0, 4)
+          .filter(sp => sp === a.sawHide || (sp.occ === 'player' && Math.random() < 0.55) || (sp.occ && sp.occ !== 'player' && Math.random() < 0.7) || Math.random() < 0.3);
+      }
+      const sp = a.checks[0];
+      if (sp) {
+        if (goTo(J, sp.out.x, sp.out.z, dt) || Math.hypot(sp.out.x - me.x, sp.out.z - me.z) < 1.1) {
+          J.goal = null; J.face = Math.atan2(sp.x - me.x, sp.z - me.z);
+          a.openT = (a.openT ?? 0) + dt;
+          if (a.openT > 0.7) {
+            a.openT = 0; a.checks.shift(); flingSpot(sp, 1.2);
+            if (sp.occ === 'player') { a.sawHide = null; playerFound(sp); return; }
+            if (sp.occ) { const d = sp.occ; unhideAI(d, true); d.update(0.001, groundAt, null); d.sync(); say(d, 'shriek'); grabVictim(d); return; }
+          }
+        }
+        break;
+      }
+      a.checked = false; a.sawHide = null; a.state = 'stalk'; a.patrol = null;
+      break;
+    }
+  }
+}
+function grabVictim(d) {
+  const a = JN.ai; if (a.victim || !d.alive) return;
+  a.victim = d; a.state = 'kill'; a.killT = 0;
+  d.ragdoll(8); d.held++; d.choked = true; d.p.neck.locked = true; d.p.neck.hand = { pos: JN.p.chest };
+  say(d, 'shriek'); if (d.ai) { d.ai.state = 'flee'; }
+}
+// he's opened the door you're behind
+function playerFound(sp) {
+  P.hidden = null; sp.occ = null; updateCrack(0);
+  caption('', 0.1);
+  playerDies();
+}
+// what the music should be doing
+function updateMoods() {
+  if (HUNT) {
+    if (H.won) return score.setMood('safe');
+    if (H.dead || RUN.t - H.witnessT < 5) return score.setMood('witness');
+    const me = headPos(), jd = JN ? Math.hypot(JN.root.x - me.x, JN.root.z - me.z) : 99;
+    if (P.hidden) return score.setMood('hide', Math.max(0, 1 - jd / 10));
+    if (H.task) return score.setMood('task', H.task.t / H.task.secs);
+    if (JN && JN.ai.target === 'player' && RUN.t - JN.ai.lastSeenT < 3 && jd < 30) return score.setMood('chase', 1 - jd / 30);
+    if (jd < 20) return score.setMood('near', 1 - jd / 20);
+    return score.setMood('explore');
+  }
+  if (RUN.t - (RUN.killMoodT ?? -99) < 4) return score.setMood('kill');
+  const J = headPos(); let best = 99;
+  for (const d of counselors) if (d.alive && d.unaware && !d.hiddenIn) best = Math.min(best, Math.hypot(d.root.x - J.x, d.root.z - J.z));
+  score.setMood(best < 9 ? 'close' : 'hunt', 1 - best / 9);
+}
+// each frame, counselor mode
+function updateHunt(dt) {
+  updateSpots(dt);
+  updateMyFlash();
+  if (!HUNT || !started) return;
+  if (!paused) { updateHunter(dt); updateTask(dt); checkEscapes(); }
+  updatePlayerHide(dt);
+  if (JN) JN.sync();
+  for (const it of items) it.glint.scale.setScalar(0.08 + 0.06 * Math.max(0, Math.sin(RUN.t * 2 + it.x)) ** 4);
+  for (const h of hands()) { if (h.gun && h.trigger && !h.trigPrev) fireGun(h); h.trigPrev = h.trigger; }
+  if (scare) { const e = JN.p.head; camera.getWorldPosition(tv); if (!inVR) { const yaw = Math.atan2(-(e.x - tv.x), -(e.z - tv.z)); deskYaw += angDiff(yaw, deskYaw) * Math.min(1, dt * 12); deskPitch += (Math.atan2(e.y - tv.y, Math.hypot(e.x - tv.x, e.z - tv.z)) - deskPitch) * Math.min(1, dt * 12); camera.rotation.set(deskPitch, deskYaw, 0); } P.hurtT = 0; }
+  boat.position.y = WATER_Y + Math.sin(RUN.t * 1.3) * 0.03;
+  if (H.won === 'boat') { boat.position.z -= dt * Math.min(8, (RUN.t % 100) * 2); }
+}
+function startHuntNight() {
+  H.hits = 0; H.items.clear(); H.task = null; H.won = false; H.dead = false; H.battery = false; H.witnessT = -99; scare = null;
+  P.hidden = null; updateCrack(0);
+  for (const sp of HIDING) { sp.occ = null; sp.target = 0; setSpotOpen(sp, 0); }
+  for (const h of allHands()) if (h.gun) { h.glove.remove(h.gun.mesh); h.gun = null; }
+  boat.position.set(DOCK.x1 + 1.1, WATER_Y, DOCK.z0 + 3);
+  // you start inside one of the buildings, away from the water
+  const rooms = BUILDINGS.flatMap(b => b.rooms.filter(r => r.kind !== 'bath').map(r => r.w)).filter(p => Math.hypot(p.x - START.x, p.z - START.z) > 30);
+  const at = pick(rooms.length ? rooms : [{ x: CAMPFIRE.x, z: CAMPFIRE.z + 4 }]);
+  H.startAt = at;
+  rig.position.set(at.x, groundAt(at.x, at.z) + S.height, at.z);
+  spawnItems();
+  // and he comes up out of the lake
+  spawnHunter(START.x, START.z + 6);
+  caption(`Night ${['one', 'two', 'three', 'four', 'five', 'six', 'seven'][RUN.night - 1] ?? RUN.night}`, 5, `${AREA.name}. Find a way out. He's coming.`);
+}
 
 // ------------------------------------------------------------ title screen
 // the camera drifts slowly over the water toward the fire while the menu is up
@@ -1548,6 +2311,13 @@ async function begin(vr) {
   sfx.init(); await loadSting(); sfx.ambience(); score.start(sfx.ctx, sfx.master, sfx.verb);
   $('screen').hidden = true; $('hud').hidden = false; $('caption').hidden = false;
   started = true; inVR = vr;
+  if (HUNT) {
+    for (const h of allHands()) h.glove.scale.setScalar(0.9);
+    // only your forearms in a flannel sleeve; the rest of the body is Jason's and stays hidden
+    for (const m of [body.torso, body.hips, ...(body.feet ?? []), ...(body.legs ?? []).flat(), ...body.arms.map(a => a[0])]) if (m) m.visible = false;
+    for (const a of body.arms) { a[1].material = flannelMat; a[1].geometry = a[1].geometry.clone().scale(0.82, 1, 0.82); }
+    for (const w of body.wrists) w.material = cleanSkinMat;
+  }
   camera.position.set(0, 1.75, 0);
   startNight(1);
 }
@@ -1568,6 +2338,9 @@ $('playDesktop').onclick = () => begin(false);
   $('castToggle').checked = SET.cast;
   $('castNames').textContent = AREA.cast.map(c => c[0][0] + c[0].slice(1).toLowerCase()).join(', ');
   $('castToggle').onchange = e => go({ cast: e.target.checked ? '1' : '0' });
+  $('modeJason').classList.toggle('on', !HUNT); $('modeCounselor').classList.toggle('on', HUNT);
+  $('modeJason').onclick = () => { if (HUNT) go({ mode: 'jason' }); };
+  $('modeCounselor').onclick = () => { if (!HUNT) go({ mode: 'counselor' }); };
 }
 $('howBtn').onclick = () => { $('how').hidden = !$('how').hidden; };
 $('enterVR').onclick = async () => {
@@ -1616,6 +2389,7 @@ function step(time) {
   updatePulls(dt);
   teleported = false;
   const head = headPos();
+  if (HUNT) sheath.visible = false;
   poseBody(body, head, headYaw(), side => inVR ? vrHands.find(h => h.active && (h.side === 'left') === (side < 0)) ?? null : (side > 0 ? desk : null), P.y - S.height, dt);
   body.g.visible = true;
   holQ.setFromAxisAngle(UP, body.yaw);
@@ -1637,12 +2411,13 @@ function step(time) {
     updateGrips(dt);
     updateCounselors(dt);
     updatePolice(dt);
+    updateMoods();
     updateFire(dt);
     updatePending(dt);
     updateNight(dt);
-    updateLamps(dt); updateDoors(dt);
+    updateLamps(dt); updateDoors(dt); updateHunt(dt);
     if (WINDMILL) WINDMILL.rotation.z -= dt * 0.7;
-    updateSense(dt);
+    if (!HUNT) updateSense(dt);
     updateGlints(RUN.t);
     const bolt = rain.update(dt, head.x, head.y, head.z);
     hemiL.intensity = (RUN.rain ? SKY.wet.hemi : SKY.clear.hemi) + bolt * 6;
@@ -1671,5 +2446,5 @@ function step(time) {
 renderer.setAnimationLoop(frame);
 
 // for poking at things from the console
-window.jr = { camp, LAMPS, BUILDINGS, DOORS, HIDING, AREA, SET, THREE, scene, renderer, RUN, P, S, counselors, police, tools, sim, blood, rig, camera, desk, vrHands, startNight, endNight, policeArrive, caption, grab, drop, killName, holsters, body, cutPhone, killPower,
+window.jr = { frame, hideAI, get JN() { return JN; }, H, items, HIDING, enterHide, leaveHide, playerHit, knockdown, spawnHunter, camp, LAMPS, BUILDINGS, DOORS, HIDING, AREA, SET, THREE, scene, renderer, RUN, P, S, counselors, police, tools, sim, blood, rig, camera, desk, vrHands, startNight, endNight, policeArrive, caption, grab, drop, killName, holsters, body, cutPhone, killPower,
   get state() { return { started, inVR, paused }; }, begin, look(y, p) { deskYaw = y; deskPitch = p; }, tp(x, z) { rig.position.x = x; rig.position.z = z; } };

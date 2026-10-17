@@ -1,7 +1,7 @@
 // Jason himself, as you see him: rotted, oversized hands and a big body in a
 // torn work jacket. Everything is built from primitives with painted textures.
 import * as THREE from '../vendor/three.module.js';
-import { sd, smin, ssub, mesh } from './sculpt.js?v=12';
+import { sd, smin, ssub, mesh } from './sculpt.js?v=13';
 
 function tex(w, h, draw, srgb = true) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;

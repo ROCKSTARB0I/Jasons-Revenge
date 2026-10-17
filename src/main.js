@@ -1,14 +1,16 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=12';
-import { Human } from './body.js?v=12';
-import { Blood } from './blood.js?v=12';
-import { sfx } from './sfx.js?v=12';
-import { score } from './score.js?v=12';
-import { Rain } from './rain.js?v=12';
-import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=12';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=12';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=12';
+import { Sim, STEP, segDist } from './sim.js?v=13';
+import { Human } from './body.js?v=13';
+import { Blood } from './blood.js?v=13';
+import { sfx } from './sfx.js?v=13';
+import { score } from './score.js?v=13';
+import { Rain } from './rain.js?v=13';
+import { AREAS } from './areas.js?v=13';
+import { WINDMILL } from './camp.js?v=13';
+import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=13';
+import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=13';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=13';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -48,8 +50,6 @@ function followMoon(h) {
   moonLight.target.position.set(x, 0, z); moonLight.position.set(x + MOON_DIR.x * 60, MOON_DIR.y * 60, z + MOON_DIR.z * 60);
   moonLight.target.updateMatrixWorld();
 }
-// two lamps that follow you from cabin to cabin (a fixed number of lights keeps the Quest happy)
-const lamps = [0, 1].map(() => { const l = new THREE.PointLight(0xffa860, 0, 7, 1.6); scene.add(l); return l; });
 
 const sim = new Sim(); sim.floorAt = restAt;
 const hemiL = scene.children.find(o => o.isHemisphereLight);
@@ -62,7 +62,10 @@ function setWeather(wet) {
   rain.set(wet); sfx.rain(wet);
 }
 const blood = new Blood(scene, sim);
-const camp = buildCamp(scene, sim);
+// what you picked on the title screen: the area, who you play, and whether the film's cast is there
+const QS = new URLSearchParams(location.search);
+const SET = { area: QS.get('area') ?? 'crystal', mode: QS.get('mode') ?? 'jason', cast: QS.get('cast') !== '0' };
+const camp = buildCamp(scene, sim, SET.area);
 
 // ------------------------------------------------------------ state
 let inVR = false, started = false, paused = false;
@@ -153,16 +156,16 @@ function resetTools() {
   // the machete starts on your back: reach over your right shoulder for it
   const m = makeTool('machete'); holsters[2].tool = m; m.holster = holsters[2];
   // the rest are on the way up from the water: a knife in the dock, an axe in a stump on the shore, a pitchfork by the fire path
-  plant(makeTool('knife'), tv2.set(0.7, 0.06, -36), tv.set(0.1, -1, 0.15).normalize());
+  plant(makeTool('knife'), tv2.set(TOOL_SPOTS.knife.x, TOOL_SPOTS.knife.y, TOOL_SPOTS.knife.z), tv.set(0.1, -1, 0.15).normalize());
   plant(makeTool('axe'), tv2.set(STUMP.x + 0.05, 0.62, STUMP.z), tv.set(0.15, -1, 0.3).normalize());
-  plant(makeTool('pitchfork'), tv2.set(-4.5, 0.02, -21), tv.set(0.15, -1, 0.2).normalize());
+  plant(makeTool('pitchfork'), tv2.set(TOOL_SPOTS.pitchfork.x, 0.02, TOOL_SPOTS.pitchfork.z), tv.set(0.15, -1, 0.2).normalize());
   // the shed: everything on the pegboard, grip down, head up; the long ones leaned in the corners; one outline left empty
   ['hatchet', 'cleaver', 'sickle', 'hammer', null, 'icepick', 'shears', 'crowbar'].forEach((k, i) => { if (k) hang(makeTool(k), SHED.slots[i]); });
   lean(makeTool('sledge'), SHED.lean[0]); lean(makeTool('spear'), SHED.lean[1]);
 }
 
 // a chopping stump on the shore for the axe
-const STUMP = { x: 8, z: -23 };
+const STUMP = TOOL_SPOTS.stump;
 {
   const st = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.42, 0.6, 12), new THREE.MeshLambertMaterial({ color: 0x4a3626 }));
   st.position.set(STUMP.x, 0.3, STUMP.z); scene.add(st);
@@ -689,7 +692,7 @@ function cutPhone() {
   for (const d of counselors) if (d.ai?.state === 'calling') { say(d, 'help'); chooseFlight(d); }
 }
 function killPower() {
-  GENERATOR.on = false; WINDOW_MAT.color.setHex(0x0b0d10); sfx.powerDown(tv3.set(GENERATOR.x, 0.6, GENERATOR.z));
+  GENERATOR.on = false; camp.setPower(false); sfx.powerDown(tv3.set(GENERATOR.x, 0.6, GENERATOR.z));
   caption('The lights go out across the camp.', 3.5);
   for (const d of counselors) if (d.alive && d.ai && d.ai.state === 'idle') setState(d, 'investigate', { x: GENERATOR.x + rand(-2, 2), z: GENERATOR.z - 2 });
 }
@@ -703,12 +706,18 @@ const SHIRTS = [[0xa02a22, ['CAMP', 'CRYSTAL LAKE']], [0xc0a050, ['CAMP', 'CRYST
 const PANTS = [0x2a3a5a, 0x3a3a48, 0x6a5a40, 0x2a2a2a, 0x4a5a6a, 0x34405a];
 let nameBag = [];
 function spawnCounselor(spot) {
-  const female = Math.random() < 0.5;
-  if (!nameBag.length) nameBag = [...NAMES_F.map(n => [n, true]), ...NAMES_M.map(n => [n, false])].sort(() => Math.random() - 0.5);
-  let i = nameBag.findIndex(([, f]) => f === female); if (i < 0) i = 0;
-  const [name] = nameBag.splice(i, 1)[0];
-  const skin = pick(SKINS), hair = pick(HAIRS), [shirt, print] = pick(SHIRTS);
-  const look = { skin, hair, eyes: pick([0x4a2a14, 0x2a4a6a, 0x4a6a3a, 0x6a5030, 0x3a2a1a]), long: female && Math.random() < 0.85, beard: !female ? pick([0, 0, 1, 2]) : 0, freckles: Math.random() < 0.25, lipstick: female && Math.random() < 0.4, seed: Math.floor(Math.random() * 1e6) };
+  let female = Math.random() < 0.5, name, castHair = null, castShort = false;
+  const castLeft = SET.cast && AREA.cast ? AREA.cast.filter(c => !counselors.some(o => o.name === c[0] && !o.gone)) : [];
+  if (castLeft.length) {
+    const c = pick(castLeft); name = c[0]; female = !!c[1];
+    castHair = { brown: 0x3a2414, blonde: 0xc8a060, dark: 0x1c140c, grey: 0x8a8478, curly: 0x5a3a1c }[c[2]] ?? null; castShort = c[3] === 'short';
+  } else {
+    if (!nameBag.length) nameBag = [...NAMES_F.map(n => [n, true]), ...NAMES_M.map(n => [n, false])].sort(() => Math.random() - 0.5);
+    let i = nameBag.findIndex(([, f]) => f === female); if (i < 0) i = 0;
+    [name] = nameBag.splice(i, 1)[0];
+  }
+  const skin = pick(SKINS), hair = castHair ?? pick(HAIRS), [shirt, print] = pick(SHIRTS);
+  const look = { skin, hair, eyes: pick([0x4a2a14, 0x2a4a6a, 0x4a6a3a, 0x6a5030, 0x3a2a1a]), long: female && !castShort && Math.random() < 0.85, beard: !female ? pick([0, 0, 1, 2]) : 0, freckles: Math.random() < 0.25, lipstick: female && Math.random() < 0.4, seed: Math.floor(Math.random() * 1e6) };
   const d = new Human(scene, sim, blood, { x: spot.x + rand(-0.4, 0.4), z: spot.z + rand(-0.4, 0.4), yaw: spot.face ?? rand(0, 6.28), scale: female ? rand(0.93, 0.98) : rand(0.99, 1.05),
     female, skin, hair, look, shirt, print, pants: pick(PANTS), shorts: Math.random() < 0.45, shoes: pick([0xd8d4cc, 0xb8b0a0, 0x3a3a3a, 0x8a2a1a]), build: Math.random() < 0.45 ? 0 : 1 });
   d.name = name;
@@ -1277,7 +1286,7 @@ function startNight(n) {
   Object.assign(RUN, { lastAlarm: 0, night: n, t: 0, dawn: 420 + n * 30, over: false, calledAt: -1, policeAt: -1, policeHere: false, carGone: false, carHp: 3, carDriving: null, kills: [], escaped: [] });
   PHONE.cut = false; JUNCTION.hp = 2; JUNCTION.wire.visible = true; JUNCTION.mesh.rotation.z = 0; JUNCTION.mesh.position.y = JUNCTION.y; JUNCTION.led.material.color.setHex(0xff2a10);
   GATE.open = false; GATE.openT = 0; GATE.box.min.y = 0; GATE.box.max.y = 2.6; for (const p of GATE.panels) p.hinge.rotation.y = 0; for (const m of GATE.lock) m.visible = true;
-  GENERATOR.on = true; GENERATOR.hp = 3; WINDOW_MAT.color.setHex(0xffb860);
+  GENERATOR.on = true; GENERATOR.hp = 3; camp.setPower(true);
   CAR.mesh.position.set(CAR.x, 0, CAR.z); CAR.mesh.rotation.y = CAR.yaw; CAR.lampMat.color.setHex(0x222018); carSmoke = 0;
   for (const b of CAR.boxes) if (b.min.y < -1) { b.min.y = 0; b.max.y = 1.4; }
   if (copCar) copCar.visible = false;
@@ -1303,7 +1312,7 @@ function startNight(n) {
   rig.rotation.y = inVR ? Math.PI : 0; deskYaw = Math.PI; deskPitch = 0;
   teleported = true;
   sting();
-  caption(`Night ${['one', 'two', 'three', 'four', 'five', 'six', 'seven'][n - 1] ?? n}`, 5, `${chosen.length} counselors at Camp Crystal Lake${RUN.rain ? ' · rain' : ''}`);
+  caption(`Night ${['one', 'two', 'three', 'four', 'five', 'six', 'seven'][n - 1] ?? n}`, 5, `${chosen.length} counselors at ${AREA.name}${RUN.rain ? ' · rain' : ''}`);
 }
 function checkNightOver() {
   if (RUN.over || counselors.some(c => c.alive) || pending.length) return;
@@ -1315,7 +1324,7 @@ function endNight(fail) {
   for (const d of counselors.filter(c => c.alive)) RUN.escaped.push({ name: d.name, how: fail ? 'survived the night' : 'saw the sunrise' });
   const kills = RUN.kills, total = kills.length + RUN.escaped.length, ways = new Set(kills.map(k => k.how)).size;
   const lines = [
-    fail ? 'They put you down. For now.' : RUN.t >= RUN.dawn ? 'Dawn came up over the lake.' : 'Nobody left at Camp Crystal Lake.',
+    fail ? 'They put you down. For now.' : RUN.t >= RUN.dawn ? 'Dawn came up over the lake.' : `Nobody left at ${AREA.name}.`,
     `${kills.length} of ${total} dead · ${RUN.escaped.length} got away · ${ways} different ways`, '',
     ...kills.map(k => `${k.name} — ${k.how}`), ...RUN.escaped.map(k => `${k.name} — ${k.how}`),
   ].slice(0, 20);
@@ -1347,10 +1356,20 @@ function updateNight(dt) {
   if (carSmoke > 0 && Math.random() < dt * 12) { const f = carFront(tv); blood.flame(f.x, f.y + 0.2, f.z, 0.3, 2, true, 0.5); }
   if (!P.down && RUN.t - P.lastHit > 5) P.hp = Math.min(100, P.hp + dt * 4);
 }
-// the two lamps go to the lit rooms nearest you
-function updateLamps() {
-  const J = headPos(), rooms = [...CABINS.map(c => c.inside), { x: LODGE.x, z: LODGE.z }].sort((a, b) => Math.hypot(a.x - J.x, a.z - J.z) - Math.hypot(b.x - J.x, b.z - J.z));
-  lamps.forEach((l, i) => { l.position.set(rooms[i].x, 2.0, rooms[i].z); l.intensity = GENERATOR.on ? 2.4 + Math.sin(RUN.t * 7 + i) * 0.1 : 0; });
+// the few real lights go to the lamps nearest you
+function updateLamps(dt) {
+  const J = headPos(); camp.updateLights(J.x, J.z, dt, RUN.t);
+}
+// doors swing open as anyone comes up to them; they creak, and they bang shut
+function updateDoors(dt) {
+  const acts = [headPos()];
+  for (const d of [...counselors, ...police]) if (!d.gone && (d.alive || d.held)) acts.push(d.p.pelvis);
+  camp.updateDoors(dt, acts);
+  for (const dr of DOORS) {
+    if (dr.target && !dr.creaked && dr.open > 0.04) { dr.creaked = true; sfx.door(tv3.set(dr.x, 1, dr.z)); }
+    if (!dr.target && dr.open < 0.04) dr.creaked = false;
+    if (dr.slam) { dr.slam = false; sfx.thud(tv3.set(dr.x, 1, dr.z)); }
+  }
 }
 
 // ------------------------------------------------------------ sound: the sting
@@ -1508,7 +1527,7 @@ addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyR') de
 // the camera drifts slowly over the water toward the fire while the menu is up
 function titleCam(time) {
   const t = time / 1000;
-  rig.position.set(Math.sin(t * 0.03) * 6, 0, -44 + Math.sin(t * 0.02) * 3);
+  rig.position.set(START.x + Math.sin(t * 0.03) * 6, 0, START.z + 8 + Math.sin(t * 0.02) * 3);
   rig.rotation.y = 0;
   camera.position.set(0, 1.1, 0);
   camera.rotation.set(-0.02 + Math.sin(t * 0.1) * 0.01, Math.PI + Math.sin(t * 0.05) * 0.12, 0);
@@ -1533,6 +1552,23 @@ async function begin(vr) {
   startNight(1);
 }
 $('playDesktop').onclick = () => begin(false);
+// the title screen: pick a place (the page reloads with it built behind the menu), who you play, who's there
+{
+  const go = (o) => { const q = new URLSearchParams({ area: SET.area, mode: SET.mode, cast: SET.cast ? '1' : '0', ...o }); location.search = q.toString(); };
+  const box = $('areas');
+  for (const a of AREAS) {
+    const b = document.createElement('button'); b.innerHTML = `${a.name}<small>${a.film}</small>`;
+    if (a.id === AREA.id) b.className = 'on';
+    b.onclick = () => { if (a.id !== AREA.id) go({ area: a.id }); };
+    box.appendChild(b);
+  }
+  $('areaBlurb').textContent = AREA.blurb;
+  $('rosterHead').textContent = AREA.name.toUpperCase();
+  $('rosterYear').textContent = AREA.film.toUpperCase();
+  $('castToggle').checked = SET.cast;
+  $('castNames').textContent = AREA.cast.map(c => c[0][0] + c[0].slice(1).toLowerCase()).join(', ');
+  $('castToggle').onchange = e => go({ cast: e.target.checked ? '1' : '0' });
+}
 $('howBtn').onclick = () => { $('how').hidden = !$('how').hidden; };
 $('enterVR').onclick = async () => {
   if (!navigator.xr) return;
@@ -1570,7 +1606,7 @@ function step(time) {
   let dt = Math.min(0.05, (time - last) / 1000 || 0); last = time;
   if (stopT > 0) { stopT -= dt; dt *= 0.15; }   // the jolt of a blow landing
   if (!started) {
-    titleCam(time); followMoon(camera.getWorldPosition(tv)); camp.updateMist(time / 1000, tv.x, tv.z);
+    titleCam(time); followMoon(camera.getWorldPosition(tv)); camp.updateMist(time / 1000, tv.x, tv.z); camp.updateLights(tv.x, tv.z, dt, time / 1000);
     RUN.t += dt; updateFire(dt); blood.update(dt, camera);
     renderer.render(scene, camera);
     return;
@@ -1604,7 +1640,8 @@ function step(time) {
     updateFire(dt);
     updatePending(dt);
     updateNight(dt);
-    updateLamps();
+    updateLamps(dt); updateDoors(dt);
+    if (WINDMILL) WINDMILL.rotation.z -= dt * 0.7;
     updateSense(dt);
     updateGlints(RUN.t);
     const bolt = rain.update(dt, head.x, head.y, head.z);
@@ -1634,5 +1671,5 @@ function step(time) {
 renderer.setAnimationLoop(frame);
 
 // for poking at things from the console
-window.jr = { THREE, scene, renderer, RUN, P, S, counselors, police, tools, sim, blood, rig, camera, desk, vrHands, startNight, endNight, policeArrive, caption, grab, drop, killName, holsters, body, cutPhone, killPower,
+window.jr = { camp, LAMPS, BUILDINGS, DOORS, HIDING, AREA, SET, THREE, scene, renderer, RUN, P, S, counselors, police, tools, sim, blood, rig, camera, desk, vrHands, startNight, endNight, policeArrive, caption, grab, drop, killName, holsters, body, cutPhone, killPower,
   get state() { return { started, inVR, paused }; }, begin, look(y, p) { deskYaw = y; deskPitch = p; }, tp(x, z) { rig.position.x = x; rig.position.z = z; } };

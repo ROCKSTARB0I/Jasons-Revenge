@@ -582,6 +582,7 @@ export function buildCamp(scene, world) {
     if (Math.abs(t.x) < BOUND + 4 && t.z < BOUND + 4) addSolid(t.x - 0.2, 0, t.z - 0.2, t.x + 0.2, 6, t.z + 0.2, false);
   });
   scene.add(trunks, cones, birchI, birchTop);
+  for (const m of [trunks, cones, birchI, birchTop]) { m.castShadow = true; m.receiveShadow = true; }
   // ferns and long grass: crossed cards, lots of them
   const tuftGeo = new THREE.PlaneGeometry(0.6, 0.45); tuftGeo.translate(0, 0.22, 0);
   const tuftGeo2 = tuftGeo.clone().rotateY(Math.PI / 2);
@@ -662,9 +663,39 @@ export function buildCamp(scene, world) {
     GATE.box = world.addBox(new THREE.Vector3(GATE.x - GATE.w / 2, 0, FENCE - 0.15), new THREE.Vector3(GATE.x + GATE.w / 2, H, FENCE + 0.15), false);
   }
 
-  mergeStatic(statics, scene);
+  const merged = mergeStatic(statics, scene);
+  merged.traverse(o => { if (o.isMesh && !o.material.transparent) { o.castShadow = true; o.receiveShadow = true; } });
+  ground.receiveShadow = true;
+
+  // ---- mist: soft banks of it lying on the water and drifting in under the trees
+  const mistTex = canvasTex(128, 128, (g, w, h) => {
+    for (let i = 0; i < 26; i++) {
+      const x = w * 0.2 + Math.random() * w * 0.6, y = h * 0.35 + Math.random() * h * 0.3, r = 16 + Math.random() * 30;
+      const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,0.22)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    }
+  });
+  const mist = [];
+  for (let i = 0; i < 46; i++) {
+    const onLake = i < 26;
+    const x = (Math.random() * 2 - 1) * (onLake ? 60 : 55), z = onLake ? SHORE(x) - 4 - Math.random() * 40 : -20 + Math.random() * 75;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: mistTex, color: 0xa8b4c4, transparent: true, depthWrite: false, opacity: 0 }));
+    const w = 9 + Math.random() * 10; sp.scale.set(w, w * 0.32, 1);
+    sp.position.set(x, (onLake ? WATER_Y : groundAt(x, z)) + w * 0.08, z);
+    sp.userData = { base: 0.35 + Math.random() * 0.35, drift: (Math.random() - 0.5) * 0.25, x0: x };
+    scene.add(sp); mist.push(sp);
+  }
+  // they drift slowly sideways and fade out as you walk into them, so they never look like cards
+  const updateMist = (t, cx, cz) => {
+    for (const m of mist) {
+      m.position.x = m.userData.x0 + Math.sin(t * 0.02 + m.userData.x0) * 4 + t * m.userData.drift % 30;
+      const d = Math.hypot(m.position.x - cx, m.position.z - cz);
+      m.material.opacity = m.userData.base * Math.min(1, Math.max(0, (d - 3) / 6));
+    }
+  };
+
   buildNav(solids);
-  return { fireLight, water, ripple, solids, trees, moon };
+  return { fireLight, water, ripple, solids, trees, moon, updateMist };
 }
 
 // ---------------------------------------------------------------- walking grid + A*

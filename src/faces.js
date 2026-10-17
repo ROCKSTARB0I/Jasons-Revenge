@@ -31,7 +31,7 @@ export function realFace(look, expr, bruise = 0) {
   blob(g, CX, 110, 120, 90, rgb(skin, 1.07, 0.6));                        // forehead / face catches light
   blob(g, CX, 230, 120, 40, rgb(skin, 0.72, 0.55));                       // under the jaw
   blob(g, CX - 40, 150, 26, 18, 'rgba(200,90,80,0.22)'); blob(g, CX + 40, 150, 26, 18, 'rgba(200,90,80,0.22)');   // cheeks
-  for (const s of [-1, 1]) blob(g, CX + s * EYE_DX, EYE_Y + 2, 24, 15, rgb(skin, 0.7, 0.55));   // eye sockets
+  for (const s of [-1, 1]) blob(g, CX + s * EYE_DX, EYE_Y + 1, 20, 11, rgb(skin, 0.84, 0.32));   // eye sockets, faint
   blob(g, CX, 125, 7, 26, rgb(skin, 1.1, 0.5));                           // bridge of the nose
   for (let i = 0; i < 9000; i++) { g.fillStyle = `rgba(${rnd() < 0.5 ? '60,30,20' : '255,235,220'},${rnd() * 0.07})`; g.fillRect(rnd() * W, rnd() * H, 1, 1); }   // pores
   if (look.freckles) for (let i = 0; i < 90; i++) { g.fillStyle = 'rgba(140,80,40,0.35)'; g.beginPath(); g.arc(CX + (rnd() - 0.5) * 110, 130 + (rnd() - 0.5) * 40, 0.8 + rnd() * 1.4, 0, 7); g.fill(); }

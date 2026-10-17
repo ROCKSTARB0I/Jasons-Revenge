@@ -1,14 +1,14 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=7';
-import { Human } from './body.js?v=7';
-import { Blood } from './blood.js?v=7';
-import { sfx } from './sfx.js?v=7';
-import { score } from './score.js?v=7';
-import { Rain } from './rain.js?v=7';
-import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=7';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=7';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=7';
+import { Sim, STEP, segDist } from './sim.js?v=8';
+import { Human } from './body.js?v=8';
+import { Blood } from './blood.js?v=8';
+import { sfx } from './sfx.js?v=8';
+import { score } from './score.js?v=8';
+import { Rain } from './rain.js?v=8';
+import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=8';
+import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=8';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=8';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -28,6 +28,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.35;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0e1522);
 scene.fog = new THREE.FogExp2(0x101824, 0.03);
@@ -35,7 +36,18 @@ const rig = new THREE.Group(); scene.add(rig);
 const camera = new THREE.PerspectiveCamera(72, 1, 0.04, 600);
 camera.rotation.order = 'YXZ'; camera.position.set(0, 1.75, 0); rig.add(camera);
 scene.add(new THREE.HemisphereLight(0x5a6c8c, 0x1a1c20, 1.7));
-const moonLight = new THREE.DirectionalLight(0xa8bce0, 1.6); moonLight.position.set(-120, 170, -330); scene.add(moonLight);
+const moonLight = new THREE.DirectionalLight(0xa8bce0, 1.6); moonLight.position.set(-120, 170, -330); scene.add(moonLight, moonLight.target);
+// moon shadows in a box that travels with you (trees, cabins, bodies, you)
+const MOON_DIR = new V3(-120, 170, -330).normalize();
+moonLight.castShadow = true; moonLight.shadow.mapSize.set(1024, 1024);
+Object.assign(moonLight.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 120 });
+moonLight.shadow.bias = -0.0006; moonLight.shadow.normalBias = 0.04;
+function followMoon(h) {
+  // snap to shadow-map texels so the edges don't crawl as you move
+  const step = 32 / 1024, x = Math.round(h.x / step) * step, z = Math.round(h.z / step) * step;
+  moonLight.target.position.set(x, 0, z); moonLight.position.set(x + MOON_DIR.x * 60, MOON_DIR.y * 60, z + MOON_DIR.z * 60);
+  moonLight.target.updateMatrixWorld();
+}
 // two lamps that follow you from cabin to cabin (a fixed number of lights keeps the Quest happy)
 const lamps = [0, 1].map(() => { const l = new THREE.PointLight(0xffa860, 0, 7, 1.6); scene.add(l); return l; });
 
@@ -329,7 +341,11 @@ function updateHand(h, dt) {
     const back = GRIPS[t.kind][0][2];
     tv2.copy(h.pos).addScaledVector(tv, back);
     t.a.moveTo(tv2.x, tv2.y, tv2.z); t.b.moveTo(tv2.x + tv.x * t.def.len, tv2.y + tv.y * t.def.len, tv2.z + tv.z * t.def.len);
-    t.mesh.position.copy(tv2); t.mesh.quaternion.copy(tq); t.mesh.updateMatrixWorld(true);
+    // as a blade bites in it hangs back for an instant: the weight of it going through
+    if (h.drag > 0 && h.toolPos) { h.drag -= dt; t.mesh.position.copy(h.toolPos).lerp(tv2, 0.3); t.mesh.quaternion.copy(h.toolQ).slerp(tq, 0.3); }
+    else { t.mesh.position.copy(tv2); t.mesh.quaternion.copy(tq); }
+    (h.toolPos ??= new V3()).copy(t.mesh.position); (h.toolQ ??= new THREE.Quaternion()).copy(t.mesh.quaternion);
+    t.mesh.updateMatrixWorld(true);
     if (paused) h.hasTip = false;
     else if (t.embed) { h.hasTip = false; updateEmbed(h, t); }
     else melee(h, t, dt);
@@ -363,8 +379,8 @@ function melee(h, t, dt) {
       if (!stab && speed < 2.6) continue;
       d.cutCd = performance.now() + 250;
       const part = hit.part, dirN = tv.copy(tipVel).normalize(), at = tv2.copy(h.tip);
-      bloody(0.08); pulse(h, 1, 70);
-      if (d.mode === 'anim' && d.alive) d.ragdoll(1.5);
+      bloody(0.08); pulse(h, 1, 70); maskBlood(at, def.heavy ? 1.2 : 0.7); h.drag = def.heavy ? 0.11 : 0.08;
+      if (d.mode === 'anim' && d.alive && (stab || def.heavy || def.blunt || d.hp < 40)) d.ragdoll(1.5);
       if (stab) {
         const sneak = d.unaware;
         d.hit(part, at, bladeDir, 'stab', def.impale ? 55 : 40 * (sneak ? 3 : 1));
@@ -389,7 +405,7 @@ function melee(h, t, dt) {
       }
       // The cut runs along the plane the blade swept through: its length and the way it was moving.
       const cutN = tv3.crossVectors(bladeDir, dirN); if (cutN.lengthSq() < 1e-4) cutN.set(-dirN.z, 0, dirN.x); cutN.normalize();
-      const kind = kindOf(part), sharp = !def.noCut, slice = n => { const r = d.slicePart(n, at.clone(), cutN.clone()); if (r) { sfx.chop(def.heavy, at); sfx.tear(at); sfx.squelch(at); pulse(h, 1, 160); hitStop(0.1); bloody(0.3); } return r; };
+      const kind = kindOf(part), sharp = !def.noCut, slice = n => { const r = d.slicePart(n, at.clone(), cutN.clone()); if (r) { sfx.chop(def.heavy, at); sfx.tear(at); sfx.squelch(at); pulse(h, 1, 160); hitStop(0.12); bloody(0.3); maskBlood(at, 2); h.drag = 0.14; } return r; };
       // already-cut pieces and spilled organs: they just come apart further
       if (kind === 'chunk' && sharp && speed > 3) { if (slice(part)) continue; }
       // the head: an axe down through it, or any heavy blade hard across it
@@ -417,6 +433,42 @@ function melee(h, t, dt) {
 }
 let stopT = 0;
 function hitStop(s) { stopT = Math.max(stopT, s); }
+// Blood on the mask: when it happens close to your face, some of it lands on the
+// mask and sits at the edges of your view, running down and drying dark.
+const maskTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = 'rgba(90,4,2,0.95)'; g.beginPath(); for (let i = 0; i <= 18; i++) { const a = i / 18 * 6.28, r = 12 + Math.random() * 8; g.lineTo(32 + Math.cos(a) * r, 30 + Math.sin(a) * r); } g.fill();
+  for (let i = 0; i < 10; i++) { g.beginPath(); g.arc(32 + (Math.random() - 0.5) * 50, 30 + (Math.random() - 0.5) * 44, 1 + Math.random() * 3, 0, 7); g.fill(); }
+  g.fillRect(29, 34, 4, 28); g.fillRect(36, 36, 2, 18);   // runs
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const maskSplats = [];
+for (let i = 0; i < 14; i++) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: maskTex, transparent: true, depthTest: false, depthWrite: false, fog: false, opacity: 0 }));
+  m.renderOrder = 1003; m.visible = false; camera.add(m); maskSplats.push({ m, t: 0 });
+}
+let maskN = 0;
+function maskBlood(at, amount = 1) {
+  const head = headPos(), d = head.distanceTo(tv2.set(at.x, at.y, at.z));
+  if (d > 1.3) return;
+  const n = Math.round((1.3 - d) * 5 * amount);
+  for (let i = 0; i < n; i++) {
+    const sp = maskSplats[maskN]; maskN = (maskN + 1) % maskSplats.length;
+    // round the edges of the eyeholes, never right in the middle
+    const a = Math.random() * 6.28, r = 0.075 + Math.random() * 0.05;
+    sp.m.position.set(Math.cos(a) * r * 1.3, Math.sin(a) * r, -0.22); sp.m.rotation.z = Math.random() * 6.28;
+    sp.m.scale.setScalar(0.015 + Math.random() * 0.03); sp.t = 9 + Math.random() * 5; sp.life = sp.t; sp.m.visible = true;
+  }
+}
+function updateMaskBlood(dt) {
+  for (const sp of maskSplats) {
+    if (sp.t <= 0) continue;
+    sp.t -= dt; sp.m.position.y -= dt * 0.0012;   // it runs
+    sp.m.material.opacity = Math.min(0.85, sp.t / sp.life * 1.6) * 0.85;
+    sp.m.material.color.setRGB(1, 1, 1).lerp(new THREE.Color(0x553333), 1 - sp.t / sp.life);   // and darkens as it dries
+    if (sp.t <= 0) sp.m.visible = false;
+  }
+}
 // a blade in someone keeps hold of the nearest point of them
 function embed(t, d, part, at) {
   const pt = d.parts[part], [A, B] = d.ends(pt);
@@ -491,7 +543,7 @@ function pushHands() {
         // a fist driven into the chest comes back out with the heart in it
         if (speed > 3.4 && (k === 'chest' || k === 'spine' || k === 'neck') && !d.heartOut && !d.split && (d.hp < 75 || speed > 5)) {
           const heart = d.ripHeart();
-          if (heart) { heart.locked = true; heart.hand = h; h.held = { type: 'point', p: heart, d }; d.held++; sfx.tear(heart); sfx.squelch(heart, 1); sfx.crack(heart); pulse(h, 1, 200); bloody(0.5); h.punchCd = 0.6; hitStop(0.12); break; }
+          if (heart) { maskBlood(heart, 2); heart.locked = true; heart.hand = h; h.held = { type: 'point', p: heart, d }; d.held++; sfx.tear(heart); sfx.squelch(heart, 1); sfx.crack(heart); pulse(h, 1, 200); bloody(0.5); h.punchCd = 0.6; hitStop(0.12); break; }
         }
         if (speed > 2.4 && h.punchCd <= 0) {
           h.punchCd = 0.25;
@@ -522,7 +574,7 @@ function updateGrips(dt) {
         h.crush = (h.crush ?? 0) + dt;
         if (Math.random() < dt * 8) pulse(h, 0.3 + h.crush * 0.5, 40);
         if (h.crush > 0.5 && Math.random() < dt * 3) { sfx.crack(p); blood.spray(p, UP, 3, 1.5, 1); d.bruise = 3; if (d.alive) say(d, 'shriek'); }
-        if (h.crush > 1.4) { d.cause = 'crush'; for (const o of held) if (o.held) { o.held.p.locked = false; o.held.p.hand = null; o.held = null; } d.held = 0; d.crushHead(); sfx.crunch(p); sfx.squelch(p, 1); bloody(0.5); pulse(h, 1, 200); hitStop(0.1); h.crush = 0; break; }
+        if (h.crush > 1.4) { maskBlood(p, 2.5); d.cause = 'crush'; for (const o of held) if (o.held) { o.held.p.locked = false; o.held.p.hand = null; o.held = null; } d.held = 0; d.crushHead(); sfx.crunch(p); sfx.squelch(p, 1); bloody(0.5); pulse(h, 1, 200); hitStop(0.1); h.crush = 0; break; }
       } else h.crush = 0;
       // throat in a fist: the breath goes, then they go
       if (p.tag === 'neck' && d.alive) {
@@ -611,7 +663,7 @@ function spawnCounselor(spot) {
   const skin = pick(SKINS), hair = pick(HAIRS), [shirt, print] = pick(SHIRTS);
   const look = { skin, hair, eyes: pick([0x4a2a14, 0x2a4a6a, 0x4a6a3a, 0x6a5030, 0x3a2a1a]), long: female && Math.random() < 0.85, beard: !female ? pick([0, 0, 1, 2]) : 0, freckles: Math.random() < 0.25, lipstick: female && Math.random() < 0.4, seed: Math.floor(Math.random() * 1e6) };
   const d = new Human(scene, sim, blood, { x: spot.x + rand(-0.4, 0.4), z: spot.z + rand(-0.4, 0.4), yaw: spot.face ?? rand(0, 6.28), scale: female ? rand(0.93, 0.98) : rand(0.99, 1.05),
-    female, skin, hair, look, shirt, print, pants: pick(PANTS), shorts: Math.random() < 0.45, shoes: pick([0xd8d4cc, 0xb8b0a0, 0x3a3a3a, 0x8a2a1a]) });
+    female, skin, hair, look, shirt, print, pants: pick(PANTS), shorts: Math.random() < 0.45, shoes: pick([0xd8d4cc, 0xb8b0a0, 0x3a3a3a, 0x8a2a1a]), build: Math.random() < 0.45 ? 0 : 1 });
   d.name = name;
   d.ai = { state: 'idle', aware: 0, seen: false, seeT: Math.random() * 0.2, spot, wanderT: rand(15, 50), route: null, routeT: 0, stamina: rand(10, 16), winded: 0, screamT: 0, plan: null, callT: 0, hideT: 0, tripCd: 3, sawBody: new Set() };
   d.face = spot.face ?? d.yaw;
@@ -768,6 +820,7 @@ function updateCounselors(dt) {
     d.unaware = !a.seen && a.aware < 0.5;
     const running = d.wantSpeed > 2;
     if (running) { a.stamina -= dt; if (a.stamina <= 0) { a.winded = rand(3, 5); a.stamina = rand(8, 14); say(d, 'gasp'); } }
+    d.breathHard = a.winded > 0;
     if (a.winded > 0) { a.winded -= dt; d.wantSpeed = 1.3; if (a.winded <= 0 && d.scared) d.wantSpeed = 3.6; if (Math.random() < dt) sfx.breath(d.p.head, d.female); }
     if (running && dist < 9 && (a.tripCd -= dt) <= 0) { a.tripCd = 2; if (Math.random() < 0.12) { d.ragdoll(rand(1.4, 2.4)); d.p.chest.addVel(Math.sin(d.yaw) * 3, 0, Math.cos(d.yaw) * 3); say(d, 'shriek'); sfx.bodyfall(d.p.chest); } }
     switch (a.state) {
@@ -1171,6 +1224,7 @@ function startNight(n) {
   for (const b of CAR.boxes) if (b.min.y < -1) { b.min.y = 0; b.max.y = 1.4; }
   if (copCar) copCar.visible = false;
   P.hp = 100; P.down = false; P.stamina = 100;
+  for (const sp of maskSplats) { sp.t = 0; sp.m.visible = false; }
   handBlood = 0; bloody(0);
   resetTools();
   // scatter them about the camp, well away from the shore you come up on; a couple at most by the fire
@@ -1444,7 +1498,7 @@ function frame(time) {
   let dt = Math.min(0.05, (time - last) / 1000 || 0); last = time;
   if (stopT > 0) { stopT -= dt; dt *= 0.15; }   // the jolt of a blow landing
   if (!started) {
-    titleCam(time);
+    titleCam(time); followMoon(camera.getWorldPosition(tv)); camp.updateMist(time / 1000, tv.x, tv.z);
     RUN.t += dt; updateFire(dt); blood.update(dt, camera);
     renderer.render(scene, camera);
     return;
@@ -1495,12 +1549,13 @@ function frame(time) {
   }
   for (let i = bubbleList.length - 1; i >= 0; i--) { const b = bubbleList[i]; b.m.position.y += b.v * dt; if (b.m.position.y > WATER_Y) { scene.remove(b.m); bubbleList.splice(i, 1); } }
   for (let i = tracers.length - 1; i >= 0; i--) { const t = tracers[i]; t.t -= dt; t.m.material.opacity = Math.max(0, t.t / 0.06); if (t.t <= 0) { scene.remove(t.m); tracers.splice(i, 1); } }
-  updateCaption(dt); drawWrist(); updateWrist(); updateMenu(); updateAudio();
+  updateCaption(dt); drawWrist(); updateWrist(); updateMenu(); updateAudio(); updateMaskBlood(dt);
   P.hurtT = Math.max(0, P.hurtT - dt);
   hurtMesh.material.opacity = P.hurtT * 1.2 + (P.hp < 40 ? (1 - P.hp / 40) * 0.25 : 0);
   hurtMesh.visible = hurtMesh.material.opacity > 0.01;
   sfx.setListener(head.x, head.y, head.z, headYaw());
   camp.ripple.offset.x = time * 0.000004; camp.ripple.offset.y = time * 0.000007;
+  followMoon(head); camp.updateMist(time / 1000, head.x, head.z);
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(frame);

@@ -4,10 +4,10 @@
 // limbs, torsos and heads come apart along the line of the cut, capped with
 // flesh and bone, and what's inside falls out.
 import * as THREE from '../vendor/three.module.js';
-import { segDist } from './sim.js?v=7';
-import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=7';
-import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=7';
-import { sliceGeometry } from './slice.js?v=7';
+import { segDist } from './sim.js?v=8';
+import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=8';
+import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=8';
+import { sliceGeometry } from './slice.js?v=8';
 
 const V = THREE.Vector3, R = Math.random;
 const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), mb = new THREE.Matrix4(), UP = new V(0, 1, 0);
@@ -118,14 +118,19 @@ const organMats = {};
 function organMat(o) { return organMats[o.name] ??= new THREE.MeshStandardMaterial({ color: o.color, map: o.bone ? null : organTex, roughness: o.bone ? 0.6 : 0.22, metalness: 0.05 }); }
 // skin and cloth bump: pores and weave catch the light
 const skinBump = tex(256, 256, (g, w, h) => { g.fillStyle = '#808080'; g.fillRect(0, 0, w, h); for (let i = 0; i < 9000; i++) { const v = 100 + R() * 70 | 0; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(R() * w, R() * h, 1, 1); } });
+const hairTex = tex(128, 256, (g, w, h) => {
+  g.fillStyle = '#9a9a9a'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 1600; i++) { const x = R() * w, y = R() * h, v = 90 + R() * 120 | 0; g.strokeStyle = `rgba(${v},${v},${v},0.6)`; g.lineWidth = 0.8; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + (R() - 0.5) * 4, y + 12, x + (R() - 0.5) * 6, y + 24 + R() * 20); g.stroke(); }
+});
 const clothBump = tex(128, 128, (g, w, h) => { for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const v = 110 + ((x + y) % 4 < 2 ? 30 : 0) + R() * 20 | 0; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, y, 1, 1); } });
 for (const t of [skinBump, clothBump]) { t.colorSpace = THREE.NoColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; }
+hairTex.wrapS = hairTex.wrapT = THREE.RepeatWrapping; hairTex.repeat.set(3, 2);
 clothBump.repeat.set(6, 6);
 // an eye: white with fine veins, the iris at u = 0.25 (the sphere's +Z), a black pupil
 const eyeCache = {};
 function eyeTex(iris) {
   return eyeCache[iris] ??= tex(256, 128, (g, w, h) => {
-    g.fillStyle = '#ece6dc'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#d6cdbf'; g.fillRect(0, 0, w, h);
     g.strokeStyle = 'rgba(170,40,40,0.35)'; g.lineWidth = 0.8;
     for (let i = 0; i < 18; i++) { g.beginPath(); let x = w * 0.25 + (R() < 0.5 ? -1 : 1) * (40 + R() * 30), y = R() * h; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += (w * 0.25 - x) * 0.25 + (R() - 0.5) * 8; y += (R() - 0.5) * 10; g.lineTo(x, y); } g.stroke(); }
     const cx = w * 0.25, cy = h * 0.5, r = 22;
@@ -138,8 +143,8 @@ function eyeTex(iris) {
 }
 const teethMat = new THREE.MeshStandardMaterial({ color: 0xe8e0c8, roughness: 0.3 });
 const mouthMat = new THREE.MeshLambertMaterial({ color: 0x3a0a0a });
-const eyeLidGeo = new THREE.SphereGeometry(0.0142, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), lowLidGeo = new THREE.SphereGeometry(0.0141, 16, 4, 0, Math.PI * 2, Math.PI * 0.72, Math.PI * 0.28);
-const eyeGeo = new THREE.SphereGeometry(0.0128, 18, 12);
+const eyeLidGeo = new THREE.SphereGeometry(0.0131, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), lowLidGeo = new THREE.SphereGeometry(0.013, 16, 4, 0, Math.PI * 2, Math.PI * 0.7, Math.PI * 0.3);
+const eyeGeo = new THREE.SphereGeometry(0.0118, 18, 12);
 // where the jaw splits from the skull: below a plane through the corner of the mouth and the hinge by the ear
 const HINGE = new V(0, -0.033, -0.012), MOUTH = new V(0, -0.0625, 0.1);
 const jawN = new V().subVectors(MOUTH, HINGE).cross(new V(1, 0, 0)).normalize().negate();   // points down, away from the skull: the jaw side
@@ -188,13 +193,13 @@ export class Human {
     const shirt = new THREE.MeshLambertMaterial({ map: shirtT, bumpMap: clothBump, bumpScale: 0.6 });
     const pants = new THREE.MeshLambertMaterial({ color: o.pants, map: fabricTex, bumpMap: clothBump, bumpScale: 0.8 });
     const shoe = new THREE.MeshLambertMaterial({ color: o.shoes ?? 0xd8d4cc, bumpMap: clothBump, bumpScale: 0.5 });
-    const hair = new THREE.MeshLambertMaterial({ color: o.hair ?? 0x2a1a10, map: fabricTex, bumpMap: clothBump, bumpScale: 1.5 });
+    const hair = new THREE.MeshLambertMaterial({ color: o.hair ?? 0x2a1a10, map: hairTex, bumpMap: hairTex, bumpScale: 0.8 });
     this.headMat = new THREE.MeshLambertMaterial({ map: realFace({ ...o.look, sculpted: true }, 'neutral'), bumpMap: skinBump, bumpScale: 0.4 });
     this.mats = { skin, shirt, pants, shoe, hair }; this.shirtT = shirtT;
     this.group = new THREE.Group(); scene.add(this.group);
 
     // ---- the sculpted parts; each layer knows what its cross-section looks like when it's cut
-    const G = bodyParts(this.female);
+    const G = bodyParts(this.female, o.build ?? 1);
     this.parts = {};
     const layer = (g, geo, mat, cap) => { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.userData.layer = true; m.userData.cap = cap; g.add(m); return m; };
     const part = (name, from, to, capMat) => { const g = new THREE.Group(); g.scale.setScalar(s); this.group.add(g); return this.parts[name] = { name, g, from, to, gone: false, capMat }; };
@@ -227,6 +232,7 @@ export class Human {
     }
     this.caps = [];
     this.anim = {}; for (const k in REST) this.anim[k] = new V();
+    this.group.traverse(m => { if (m.isMesh && !m.userData.organ) m.castShadow = true; });
     this.sync();
   }
 
@@ -240,18 +246,19 @@ export class Human {
     const jaw = lay(jawGeo, this.headMat, pivot); jaw.position.copy(HINGE).negate();
     // inside the mouth
     const cav = new THREE.Mesh(new THREE.SphereGeometry(0.026, 12, 8), mouthMat); cav.position.set(0, -0.064, 0.072); cav.scale.set(1.1, 0.8, 0.9); g.add(cav);
-    const upT = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.008, 0.014), teethMat); upT.position.set(0, -0.0585, 0.089); g.add(upT);
-    const loT = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.008, 0.012), teethMat); loT.position.set(0, -0.0665, 0.086); jaw.add(loT);
+    const upT = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.007, 0.012), teethMat); upT.position.set(0, -0.0585, 0.084); g.add(upT);
+    const loT = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.007, 0.01), teethMat); loT.position.set(0, -0.0665, 0.081); jaw.add(loT);
+    this.teeth = [upT, loT];
     // eyes and lids
     const eyeMat = new THREE.MeshStandardMaterial({ map: eyeTex(o.look?.eyes ?? 0x4a2a14), roughness: 0.15 });
     this.eyes = []; this.lids = [];
     for (const sx of [-1, 1]) {
-      const e = new THREE.Mesh(eyeGeo, eyeMat); e.position.set(sx * 0.032, 0.013, 0.086); g.add(e); this.eyes.push(e);
+      const e = new THREE.Mesh(eyeGeo, eyeMat); e.position.set(sx * 0.031, 0.013, 0.083); g.add(e); this.eyes.push(e);
       const lid = new THREE.Mesh(eyeLidGeo, skin); lid.position.copy(e.position); g.add(lid); this.lids.push(lid);
       const low = new THREE.Mesh(lowLidGeo, skin); low.position.copy(e.position); low.rotation.x = -0.25; g.add(low);
     }
     // hair
-    if (o.hair != null) lay(o.look?.long ? bodyParts(this.female).head.longHair : bodyParts(this.female).head.hair, hairMat, g, false);
+    if (o.hair != null) lay(o.look?.long ? bodyParts(this.female, o.build ?? 1).head.longHair : bodyParts(this.female, o.build ?? 1).head.hair, hairMat, g, false);
     this.jaw = pivot; this.faceT = { blink: 2 + R() * 3, blinkT: 0, look: new V(0, 0, 1), jaw: 0, glance: 0 };
   }
   // every frame: blink, look, talk
@@ -268,11 +275,11 @@ export class Human {
     // lids: blink every few seconds, wide with terror, shut asleep, half-open dead
     f.blink -= dt; if (f.blink <= 0) { f.blink = (this.scared ? 1 : 2.5) + R() * 3; f.blinkT = 0.14; }
     f.blinkT = Math.max(0, f.blinkT - dt);
-    let lid = this.scared ? -0.75 : -0.45;
+    let lid = this.scared ? -0.42 : -0.1;   // relaxed: the lid sits over the top of the iris
     if (f.blinkT > 0) lid = 1.35; if (out) lid = 1.4; if (dead) lid = 0.35; if (this.choked && this.chokeT > 0.4) lid = -0.95;
     for (const l of this.lids) l.rotation.x += (lid - l.rotation.x) * Math.min(1, dt * (f.blinkT > 0 ? 40 : 10));
     // the jaw: hangs open dead, works when they talk, gapes when they scream
-    let jaw = 0.02;
+    let jaw = 0;
     const talking = this.line && this.line.end > (this.clock?.() ?? 0);
     if (talking) jaw = this.lineBig ? 0.32 + Math.sin(this.time * 9) * 0.05 : 0.08 + Math.abs(Math.sin(this.time * 17)) * 0.16;
     else if (this.scared && this.alive) jaw = 0.06 + Math.sin(this.time * 3) * 0.02;
@@ -280,6 +287,7 @@ export class Human {
     if (dead) jaw = 0.22; if (out) jaw = 0.07;
     f.jaw += (jaw - f.jaw) * Math.min(1, dt * 14);
     this.jaw.rotation.x = f.jaw;
+    for (const t of this.teeth) t.visible = f.jaw > 0.05;
   }
 
   // ---------------------------------------------------------------- animation
@@ -291,14 +299,24 @@ export class Human {
     const crouch = pose === 'hide' || pose === 'cower' ? 1 : 0;
     const ph = this.phase, bob = (0.018 + run * 0.03) * walk * Math.abs(Math.sin(ph));
     const lean = run * 0.32 + walk * 0.05 + crouch * 0.25;
-    const breathe = Math.sin(T * (this.scared ? 4 : 1.6)) * (this.scared ? 0.008 : 0.004);
-    const sway = (pose === 'idle' ? Math.sin(T * 0.4) * 0.02 : 0);
+    const hard = this.scared || this.breathHard;
+    const breathe = Math.sin(T * (hard ? 4.5 : 1.6)) * (hard ? 0.012 : 0.004);
+    // standing about: weight rocks from one leg to the other
+    const sway = (pose === 'idle' || pose === 'warm' ? Math.sin(T * 0.33 + this.phase) * 0.035 : 0);
+    const limp = Math.min(1, (this.legHurt ?? 0) / 40), limpSide = this.limpSide ?? 1;
     const P = (out, x, y, z) => out.set(x, y, z);
     // spine: pelvis then up, leaning forward about X
-    const pelY = 0.96 - bob - crouch * 0.47;
+    // a limp: the body drops onto the good leg every time the hurt one takes weight
+    const limpDrop = limp * walk * Math.max(0, Math.sin(ph + (limpSide > 0 ? Math.PI : 0))) * 0.06;
+    const pelY = 0.96 - bob - crouch * 0.47 - limpDrop;
     P(A.pelvis, sway, pelY, 0);
     const up = (len, from, out, extraLean = 0) => out.set(from.x, from.y + Math.cos(lean + extraLean) * len, from.z + Math.sin(lean + extraLean) * len);
     up(0.21, A.pelvis, A.spine); up(0.19, A.spine, A.chest, crouch * 0.2); A.chest.y += breathe; up(0.17, A.chest, A.neck, crouch * 0.1);
+    // a flinch: the top half jerks away from a blow, then comes back
+    if (this.flinch && this.flinch.t > 0) {
+      this.flinch.t -= dt; const e = Math.sin(Math.min(1, this.flinch.t / 0.45) * Math.PI) * this.flinch.k;
+      for (const k of ['chest', 'neck']) { A[k].x += this.flinch.x * e * (k === 'neck' ? 1.3 : 1); A[k].z += this.flinch.z * e * (k === 'neck' ? 1.3 : 1); A[k].y -= e * 0.03; }
+    }
     // head: turned toward what they're looking at
     let hy = 0, hp = -lean * 0.6;
     if (this.look) {
@@ -309,7 +327,8 @@ export class Human {
     this.headTurn = (this.headTurn ?? 0) + (hy - (this.headTurn ?? 0)) * Math.min(1, dt * 5);
     A.head.set(A.neck.x + Math.sin(this.headTurn) * 0.02, A.neck.y + 0.14 * Math.cos(hp), A.neck.z + 0.14 * Math.sin(-hp) * -1 + 0.012);
     // shoulders and hips, the chest counter-twisting against the stride
-    const twist = Math.sin(ph) * 0.12 * walk;
+    // the chest counter-twists against the stride, and turns with the head when they look back over a shoulder
+    const twist = Math.sin(ph) * 0.12 * walk - Math.max(-0.35, Math.min(0.35, (this.headTurn ?? 0) * 0.3));
     for (const [side, sx] of [['l', -1], ['r', 1]]) {
       const sh = A[side + 'Sh'];
       sh.set(A.chest.x + Math.cos(twist) * 0.19 * sx, A.chest.y + 0.085, A.chest.z + Math.sin(twist) * 0.19 * sx * -1 + Math.sin(lean) * 0.04);
@@ -317,9 +336,11 @@ export class Human {
     }
     // legs
     for (const [side, sx, off] of [['l', -1, 0], ['r', 1, Math.PI]]) {
-      const p = ph + off, stride = (0.2 + run * 0.28) * walk;
+      const hurtLeg = (side === 'l' ? -1 : 1) === limpSide;
+      const p = ph + off, stride = (0.2 + run * 0.28) * walk * (hurtLeg ? 1 - limp * 0.5 : 1);
       const foot = t1.set(0.1 * sx, 0.085 + Math.max(0, -Math.sin(p)) * (0.07 + run * 0.18) * walk, Math.cos(p) * stride);
       if (crouch) foot.set(0.13 * sx, 0.085, 0.3);
+      if (sway) foot.x += sway * 0.4;   // feet stay planted while the hips rock over them
       if (pose === 'flail') foot.y += Math.max(0, Math.sin(T * 9 + off)) * 0.1;
       A[side + 'An'].copy(foot);
       ik(A[side + 'Hip'], foot, 0.42, 0.415, t2.set(sx * (crouch ? 0.35 : 0.05), 0, 1), A[side + 'Kn']);
@@ -341,6 +362,9 @@ export class Human {
       else if (run > 0.2) { const sw = Math.cos(p) * 0.28 * run; hand.set(0.2 * sx, 1.08 + Math.max(0, sw) * 0.25, sw + 0.08); bend.set(sx * 0.3, -0.4, -1); }   // pumping, elbows bent
       else { const sw = Math.cos(p) * 0.16 * walk; hand.set(0.235 * sx, 0.93 + Math.abs(sw) * 0.15 - crouch * 0.4, sw + 0.03); }
       if (this.scared && pose === 'idle') { hand.set(0.12 * sx, 1.1, 0.15); bend.set(sx, -1, 0); }
+      // clutching a wound: the hand on the side of it presses over it
+      if (this.clutch && this.clutch.t > 0 && (this.clutch.x * sx >= -0.02 || this.clutch.both)) { hand.set(this.clutch.x * 0.8 + sx * 0.02, this.clutch.y, this.clutch.z + 0.06); bend.set(sx, -0.5, -0.3); }
+      if (this.breathHard && walk < 0.3 && pose === 'idle') { hand.set(0.1 * sx, 0.6, 0.22); bend.set(sx, 0.2, -0.5); }   // hands on knees, gasping
       ik(sh, hand, 0.29, 0.25, bend, A[side + 'El']);
       A[side + 'Wr'].copy(t3.subVectors(hand, A[side + 'El']).setLength(0.25).add(A[side + 'El']));
       A[side + 'Fin'].copy(t3.subVectors(A[side + 'Wr'], A[side + 'El']).setLength(0.17).add(A[side + 'Wr']));
@@ -380,6 +404,12 @@ export class Human {
   // control: called every frame by the game
   update(dt, floorAt, push) {
     this.time += dt;
+    if (this.clutch) this.clutch.t -= dt;
+    // the last of the nerves firing: twitches for a while after death
+    if (!this.alive && this.twitchT > 0) {
+      this.twitchT -= dt;
+      if (R() < dt * 6 * Math.min(1, this.twitchT / 2)) { const ks = ['lWr', 'rWr', 'lAn', 'rAn', 'lFin', 'rFin', 'head']; const k = ks[Math.floor(R() * ks.length)]; if (!this.loose.has(k) || R() < 0.3) this.p[k].addVel((R() - 0.5) * 1.6, R() * 1.2, (R() - 0.5) * 1.6); }
+    }
     if (this.alive && this.bleed > 0) { this.hp -= this.bleed * dt; if (this.hp <= 0) this.die(); }
     if (this.fireT > 0) this.burn(dt);
     if (this.mode === 'anim') {
@@ -389,7 +419,7 @@ export class Human {
       else if (this.face != null) want = this.face;
       let d = want - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
       this.yaw += d * Math.min(1, dt * (this.speed > 2 ? 6 : 4));
-      const target = this.goal ? this.wantSpeed * Math.max(0.2, Math.cos(d)) : 0;
+      const target = this.goal ? this.wantSpeed * Math.max(0.2, Math.cos(d)) * (1 - Math.min(1, (this.legHurt ?? 0) / 40) * 0.55) : 0;
       this.speed += (target - this.speed) * Math.min(1, dt * 3);
       this.root.x += Math.sin(this.yaw) * this.speed * dt; this.root.z += Math.cos(this.yaw) * this.speed * dt;
       if (this.pose !== 'sleep') push?.(this.root);
@@ -472,6 +502,16 @@ export class Human {
     this.bleed += kind === 'stab' ? 3 : kind === 'slash' ? 2 : 0.3;
     this.blood.spray(point, t1.copy(dir).multiplyScalar(-0.3).add(t2.set(0, 0.4, 0)).normalize(), kind === 'blunt' ? 6 : 14, 2.5, 0.6);
     if (this.alive && this.mode === 'anim' && (kind === 'blunt' || dmg > 25)) this.ragdoll(1.2 + R());
+    else if (this.alive) {
+      // into their own frame: which way the blow pushed them, and where the wound is
+      const c = Math.cos(this.yaw), sn = Math.sin(this.yaw);
+      this.flinch = { x: dir.x * c - dir.z * sn, z: dir.x * sn + dir.z * c, t: 0.45, k: Math.min(0.12, 0.04 + dmg * 0.003) };
+      const lx = (point.x - this.root.x) * c - (point.z - this.root.z) * sn, lz = (point.x - this.root.x) * sn + (point.z - this.root.z) * c;
+      const ly = (point.y - (this.ground ?? 0)) / this.s;
+      if (ly > 0.7 && ly < 1.6) this.clutch = { x: lx / this.s, y: ly, z: lz / this.s, t: 4, both: kindOf(partName) === 'torso' || kindOf(partName) === 'hips' };
+    }
+    const kk = kindOf(partName);
+    if (kk === 'thigh' || kk === 'shin' || kk === 'foot') { this.legHurt = (this.legHurt ?? 0) + dmg; this.limpSide = partName.startsWith('l') ? -1 : 1; }
     if (this.hp <= 0 && this.alive) this.die();
     return pt;
   }
@@ -568,7 +608,7 @@ export class Human {
   rehome(meshes, oldW, g) {
     g.updateMatrixWorld(true);
     const inv = mb.copy(g.matrixWorld).invert().multiply(oldW);
-    for (const m of meshes) { const mm = new THREE.Matrix4().multiplyMatrices(inv, m.matrix); m.matrixAutoUpdate = true; mm.decompose(m.position, m.quaternion, m.scale); g.add(m); }
+    for (const m of meshes) { const mm = new THREE.Matrix4().multiplyMatrices(inv, m.matrix); m.matrixAutoUpdate = true; mm.decompose(m.position, m.quaternion, m.scale); m.castShadow = true; g.add(m); }
   }
   // a limb cut part-way: the near end stays as a stump, the far end (and everything past it) comes away
   cutLimb(pt, point, normal, go, oldW) {
@@ -815,7 +855,7 @@ export class Human {
   }
   die() {
     if (!this.alive) return;
-    this.alive = false; this.hp = 0; this.scared = true;
+    this.alive = false; this.hp = 0; this.scared = true; this.twitchT = 4 + R() * 3;
     this.ragdoll(1e9);
     // a last push the way they were going
     const v = this.speed;

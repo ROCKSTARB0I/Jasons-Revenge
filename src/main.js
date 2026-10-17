@@ -1,14 +1,14 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=6';
-import { Human } from './body.js?v=6';
-import { Blood } from './blood.js?v=6';
-import { sfx } from './sfx.js?v=6';
-import { score } from './score.js?v=6';
-import { Rain } from './rain.js?v=6';
-import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=6';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=6';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=6';
+import { Sim, STEP, segDist } from './sim.js?v=7';
+import { Human } from './body.js?v=7';
+import { Blood } from './blood.js?v=7';
+import { sfx } from './sfx.js?v=7';
+import { score } from './score.js?v=7';
+import { Rain } from './rain.js?v=7';
+import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=7';
+import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=7';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=7';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -200,13 +200,11 @@ function grab(h) {
     const d = inVR ? Math.sqrt(segDist(h.pos, h.pos, t.a, t.b)) : near((t.a.x + t.b.x) / 2, (t.a.y + t.b.y) / 2, (t.a.z + t.b.z) / 2);
     if (d < bd) { bd = d; best = { type: 'tool', tool: t }; }
   }
-  for (const d of victims()) {
-    for (const k in d.p) {
-      const p = d.p[k]; if (p.hand || p.dead) continue;
-      const dd = near(p.x, p.y, p.z, p.r) + (k === 'neck' ? -0.05 : 0);
-      if (dd < bd - 0.04) { bd = dd + 0.04; best = { type: 'point', p, d }; }
-    }
-    for (const e of [...d.extra, ...d.guts.map(g => ({ p: g.b }))]) { const dd = near(e.p.x, e.p.y, e.p.z, 0.03); if (dd < bd) { bd = dd; best = { type: 'point', p: e.p, d }; } }
+  const mine = new Map(victims().map(d => [d, d]));
+  for (const p of sim.points) {
+    const d = mine.get(p.owner); if (!d || p.hand || p.dead || p.tag === 'side') continue;
+    const dd = near(p.x, p.y, p.z, p.r) + (p.tag === 'neck' ? -0.05 : 0);
+    if (dd < bd - 0.04) { bd = dd + 0.04; best = { type: 'point', p, d }; }
   }
   if (!best) return;
   h.held = best;
@@ -214,6 +212,7 @@ function grab(h) {
   if (best.type === 'tool') {
     const t = best.tool;
     if (t.stuck) { const d = t.stuck.d; blood.spray(t.b, tv.set(t.a.x - t.b.x, t.a.y - t.b.y, t.a.z - t.b.z).normalize(), 18, 2.5, 0.6); d.bleed += 4; t.stuck = null; sfx.slurp(t.b); sfx.squelch(t.b, 0.6); bloody(0.1); }
+    if (t.wallPin) { const w = t.wallPin; w.p.hand = null; w.p.locked = false; w.d.held = Math.max(0, w.d.held - 1); t.wallPin = null; sfx.slurp(t.b); sfx.squelch(t.b, 0.7); blood.spray(t.b, UP, 15, 2, 0.8); }
     if (t.planted) { t.planted = false; t.hung = false; sfx.thud(t.a); }
     t.held = h; t.a.locked = t.b.locked = true; h.hasTip = false;
   } else {
@@ -257,7 +256,7 @@ function releaseBody(d) {
     if (h.held?.type === 'point' && h.held.d === d) { h.held.p.locked = false; h.held.p.hand = null; h.held = null; }
     if (h.held?.type === 'tool' && h.held.tool.embed?.d === d) h.held.tool.embed = null;
   }
-  for (const t of tools) if (t.stuck?.d === d) { t.stuck = null; t.a.locked = t.b.locked = false; }
+  for (const t of tools) { if (t.stuck?.d === d) { t.stuck = null; t.a.locked = t.b.locked = false; } if (t.wallPin?.d === d) t.wallPin = null; }
   d.held = 0;
 }
 
@@ -343,7 +342,8 @@ const bladeA = new V3(), bladeDir = new V3(), tipVel = new V3();
 // where a limb comes off: the joint nearer the blade
 const CUT = { lUpper: ['lSh', 'lEl'], rUpper: ['rSh', 'rEl'], lFore: ['lEl', 'lWr'], rFore: ['rEl', 'rWr'], lHand: ['lWr', 'lWr'], rHand: ['rWr', 'rWr'],
   lThigh: ['lHip', 'lKn'], rThigh: ['rHip', 'rKn'], lShin: ['lKn', 'lAn'], rShin: ['rKn', 'rAn'], lFoot: ['lAn', 'lAn'], rFoot: ['rAn', 'rAn'] };
-const LIMB_TOUGH = { Upper: 9, Fore: 6, Hand: 3, Thigh: 16, Shin: 10, Foot: 4 };
+const LIMB_TOUGH = { upper: 9, fore: 6, hand: 3, thigh: 16, shin: 10, foot: 4 };
+const kindOf = n => { const b = n.split('#')[0]; return b === 'chunk' ? 'chunk' : b.startsWith('l') || b.startsWith('r') ? b.slice(1).toLowerCase() : b; };
 function melee(h, t, dt) {
   const def = t.def;
   bladeA.set(t.a.x + (t.b.x - t.a.x) * def.blade, t.a.y + (t.b.y - t.a.y) * def.blade, t.a.z + (t.b.z - t.a.z) * def.blade);
@@ -375,28 +375,35 @@ function melee(h, t, dt) {
         return;
       }
       if (def.blunt) {
-        const head = part === 'head' || part === 'neck', force = speed * (def.heavy ? 1.6 : 1);
+        const head = kindOf(part) === 'head' || kindOf(part) === 'neck', force = speed * (def.heavy ? 1.6 : 1);
         d.hit(part, at, dirN, 'blunt', (head ? 32 : 15) * force / 3);
         for (const k of ['chest', 'neck', 'head', 'spine']) d.p[k].addVel(dirN.x * force * 0.5, dirN.y * force * 0.5 + 0.4, dirN.z * force * 0.5);
         if (head) {
           d.bruise = Math.min(3, (d.bruise ?? 0) + (def.heavy ? 1.5 : 0.7));
           if ((def.heavy && speed > 3.5) || (d.bruise >= 3 && speed > 3.2)) { d.cause = 'smash'; d.crushHead(); sfx.crunch(at); sfx.squelch(at); bloody(0.3); hitStop(0.1); continue; }
           sfx.crack(at);
-        } else if (CUT[part]) { sfx.crack(at); d.limbDmg ??= {}; d.limbDmg[part] = 99; }   // that bone's gone
+        } else if (LIMB_TOUGH[kindOf(part)]) { sfx.crack(at); }   // that bone's gone
         d.ragdoll(def.heavy ? 3 : 2); d.cause ??= 'bludgeon';
         sfx.thud(at); sfx.punch(at); pulse(h, 1, def.heavy ? 120 : 80); hitStop(def.heavy ? 0.07 : 0.045);
         continue;
       }
-      // the big ones: an axe down through the skull or level through the waist; any blade through the neck
-      if (def.halves && speed > 3.6 && dirN.y < -0.6 && part === 'head') { d.cleaveHead(); sfx.chop(true, at); sfx.crunch(at); sfx.squelch(at); pulse(h, 1, 150); hitStop(0.1); bloody(0.3); continue; }
-      if (def.halves && speed > 4.4 && Math.abs(dirN.y) < 0.5 && (part === 'hips' || (part === 'torso' && hit.t < 0.35))) { d.splitWaist(); sfx.chop(true, at); sfx.tear(at); sfx.slop(at); pulse(h, 1, 200); hitStop(0.12); bloody(0.4); continue; }
-      if ((part === 'neck' || (part === 'head' && hit.t < 0.3)) && speed > 3.2 && !def.noCut && (def.len >= 0.4 || speed > 5)) { d.cause = 'decapitated'; d.decapitate(1.2); sfx.chop(def.heavy, at); sfx.tear(at); sfx.gush(at); pulse(h, 1, 150); hitStop(0.1); bloody(0.3); continue; }
-      if ((part === 'hips' || (part === 'torso' && hit.t < 0.5)) && speed > 3.2 && !d.gutted && !def.noCut) { d.hit(part, at, dirN, 'slash', 30); d.disembowel(); sfx.chop(false, at); sfx.slop(at); hitStop(0.06); bloody(0.2); continue; }
-      // limbs come off once they've taken enough
-      if (CUT[part]) {
+      // The cut runs along the plane the blade swept through: its length and the way it was moving.
+      const cutN = tv3.crossVectors(bladeDir, dirN); if (cutN.lengthSq() < 1e-4) cutN.set(-dirN.z, 0, dirN.x); cutN.normalize();
+      const kind = kindOf(part), sharp = !def.noCut, slice = n => { const r = d.slicePart(n, at.clone(), cutN.clone()); if (r) { sfx.chop(def.heavy, at); sfx.tear(at); sfx.squelch(at); pulse(h, 1, 160); hitStop(0.1); bloody(0.3); } return r; };
+      // already-cut pieces and spilled organs: they just come apart further
+      if (kind === 'chunk' && sharp && speed > 3) { if (slice(part)) continue; }
+      // the head: an axe down through it, or any heavy blade hard across it
+      if (kind === 'head' && sharp && ((def.halves && speed > 3.6) || (def.len >= 0.36 && speed > 4.6)) && hit.t >= 0.3) { if (slice(part)) continue; }
+      // the neck: off, along the line of the swing
+      if ((kind === 'neck' || (kind === 'head' && hit.t < 0.3)) && speed > 3.2 && sharp && (def.len >= 0.4 || speed > 5)) { d.cause = 'decapitated'; if (slice(d.parts.neck ? 'neck' : part)) { sfx.gush(at); continue; } }
+      // straight through the trunk: an axe swung hard, or a machete swung very hard
+      if ((kind === 'torso' || kind === 'hips') && sharp && ((def.halves && speed > 4.2) || (def.len >= 0.6 && speed > 6.5))) { if (slice(part)) { sfx.slop(at); continue; } }
+      if ((kind === 'hips' || (kind === 'torso' && hit.t < 0.5)) && speed > 3.2 && !d.gutted && sharp) { d.hit(part, at, dirN, 'slash', 30); d.disembowel(); sfx.chop(false, at); sfx.slop(at); hitStop(0.06); bloody(0.2); continue; }
+      // limbs: once a limb has taken enough, the next cut goes through it, wherever it lands
+      if (LIMB_TOUGH[kind]) {
         d.limbDmg ??= {}; d.limbDmg[part] = (d.limbDmg[part] ?? 0) + def.dmg * (speed / 3.5) * (def.heavy ? 1.6 : 1);
         d.hit(part, at, dirN, 'slash', 14);
-        if (d.limbDmg[part] >= LIMB_TOUGH[part.slice(1)] && !def.noCut) { const j = CUT[part][hit.t > 0.55 ? 1 : 0]; if (d.sever(j, 1.2)) { sfx.chop(def.heavy, at); sfx.tear(at); hitStop(0.08); bloody(0.2); continue; } }
+        if (d.limbDmg[part] >= LIMB_TOUGH[kind] && sharp) { if (slice(part)) continue; }
         sfx.chop(def.heavy, at); hitStop(0.035);
         continue;
       }
@@ -412,7 +419,7 @@ let stopT = 0;
 function hitStop(s) { stopT = Math.max(stopT, s); }
 // a blade in someone keeps hold of the nearest point of them
 function embed(t, d, part, at) {
-  const pt = d.parts[part], A = pt.fromPt ?? d.p[pt.from], B = d.p[pt.to];
+  const pt = d.parts[part], [A, B] = d.ends(pt);
   const near = B !== A && B.dist(at) < A.dist(at) ? B : A;
   t.embed = { d, p: near, off: new V3(near.x - t.b.x, near.y - t.b.y, near.z - t.b.z) };
   blood.spurt(t.b, out => out.set(t.a.x - t.b.x, t.a.y - t.b.y, t.a.z - t.b.z).normalize(), 3, 0.6);
@@ -425,9 +432,28 @@ function updateEmbed(h, t) {
   if (pull > (t.def.impale ? 0.5 : 0.22)) { yank(h, t); return; }
   const k = t.def.impale ? 0.55 : 0.3;
   if (!e.p.locked) e.p.moveTo(e.p.x + (wx - e.p.x) * k, e.p.y + (wy - e.p.y) * k, e.p.z + (wz - e.p.z) * k, true);
+  // a long blade driven on through them into a wall, a tree, a post: it sticks, and so do they
+  if (t.def.len >= 0.6 && t.def.thrust) for (const b of sim.near(t.b.x, t.b.z)) {
+    if (b.max.y < 0.6) continue;
+    const m = 0.04;
+    if (t.b.x > b.min.x - m && t.b.x < b.max.x + m && t.b.z > b.min.z - m && t.b.z < b.max.z + m && t.b.y > b.min.y && t.b.y < b.max.y) { pinToWall(h, t); return; }
+  }
   // twisting it in
   if (Math.abs(h.twist) > 6 && (e.grindT = (e.grindT ?? 0) - 1 / 72) <= 0) { e.grindT = 0.25; sfx.grind(e.p); blood.spray(t.b, UP, 6, 1.5, 0.8); e.d.hp -= 12; e.d.bleed += 2; if (e.d.alive) say(e.d, 'shriek'); if (e.d.hp <= 0) e.d.die(); }
   if (t.def.impale && e.d.alive && Math.random() < 0.015) { e.d.hp -= 5; if (e.d.hp <= 0) e.d.die(); }
+}
+function pinToWall(h, t) {
+  const e = t.embed, d = e.d;
+  // drive it in a little further and leave it there
+  tv.set(t.b.x - t.a.x, t.b.y - t.a.y, t.b.z - t.a.z).normalize();
+  for (const p of [t.a, t.b]) { p.moveTo(p.x + tv.x * 0.06, p.y + tv.y * 0.06, p.z + tv.z * 0.06); p.locked = true; }
+  t.mesh.position.set(t.a.x, t.a.y, t.a.z); t.mesh.quaternion.setFromUnitVectors(NEG_Z, tv);
+  e.p.moveTo(e.p.x + tv.x * 0.06, e.p.y + tv.y * 0.06, e.p.z + tv.z * 0.06); e.p.locked = true; e.p.hand = 'wall';
+  t.wallPin = { p: e.p, d }; t.embed = null; t.held = null; t.planted = true; h.held = null; h.hasTip = false;
+  d.held++; d.wallPinned = true; d.ragdoll(99); d.cause = 'pinned';
+  sfx.stab(t.b); sfx.thud(t.b); sfx.squelch(t.b, 1); pulse(h, 1, 220); hitStop(0.12); bloody(0.2);
+  blood.spray(t.b, tv.negate(), 25, 2.5, 0.6); d.bleed += 4;
+  if (d.alive) say(d, 'scream');
 }
 function yank(h, t) {
   const e = t.embed; if (!e) return;
@@ -604,6 +630,7 @@ function say(d, ev) {
   if (talking) d.line.stop();
   d.saidAt = now;
   d.line = sfx.voice(ev, d.p.head, d.female, d.police ? 1.1 : 1);
+  d.lineBig = big || ev === 'shriek' || ev === 'help'; d.clock = sfx.now;
 }
 function updateFlashlight(d) {
   const f = d.flash; if (!f) return;
@@ -719,6 +746,7 @@ function updateCounselors(dt) {
     if (d.mode === 'rag') { d.crawlTo = { x: d.p.chest.x + (d.p.chest.x - J.x), z: d.p.chest.z + (d.p.chest.z - J.z) }; if (Math.random() < dt * 0.4) say(d, pick(['sob', 'plead', 'help'])); continue; }
     const me = d.root, dist = Math.hypot(J.x - me.x, J.z - me.z);
     d.look = a.seen ? { x: J.x, z: J.z } : a.target ?? null;
+    d.lookAtW = a.seen && dist < 20 ? J : null;
     if ((a.seeT -= dt) <= 0) {
       a.seeT = 0.15;
       const v = a.state === 'asleep' ? 0 : canSee(d, J);
@@ -856,6 +884,7 @@ function killName(d) {
   if (d.heartOut) return 'heart torn out';
   if (d.burnT > 0.3) return 'burned alive';
   if (d.cause === 'snap') return 'neck snapped';
+  if (d.cause === 'pinned' || d.wallPinned) return 'pinned to the wall';
   if (d.cause === 'impale') return 'impaled';
   const limbs = ['lSh', 'rSh', 'lEl', 'rEl', 'lHip', 'rHip', 'lKn', 'rKn', 'lWr', 'rWr', 'lAn', 'rAn'].filter(j => d.severed.has(j)).length;
   if (limbs >= 2 || d.cause === 'torn') return 'torn apart';
@@ -1477,5 +1506,5 @@ function frame(time) {
 renderer.setAnimationLoop(frame);
 
 // for poking at things from the console
-window.jr = { RUN, P, S, counselors, police, tools, sim, blood, rig, camera, desk, vrHands, startNight, endNight, policeArrive, caption, grab, drop, killName, holsters, body, cutPhone, killPower,
+window.jr = { THREE, scene, RUN, P, S, counselors, police, tools, sim, blood, rig, camera, desk, vrHands, startNight, endNight, policeArrive, caption, grab, drop, killName, holsters, body, cutPhone, killPower,
   get state() { return { started, inVR, paused }; }, begin, look(y, p) { deskYaw = y; deskPitch = p; }, tp(x, z) { rig.position.x = x; rig.position.z = z; } };

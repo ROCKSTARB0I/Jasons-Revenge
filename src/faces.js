@@ -78,7 +78,7 @@ export function realFace(look, expr, bruise = 0) {
     if (!out) { g.strokeStyle = rgb(skin, 0.75, 0.6); g.lineWidth = 1; g.beginPath(); g.ellipse(x, y + 1, ew - 1, eh + 1, 0, 0.2, Math.PI - 0.2); g.stroke(); }
     blob(g, x, y + eh + 5, 12, 4, fear || dead ? 'rgba(80,40,60,0.35)' : 'rgba(90,50,40,0.18)');   // bags
   };
-  eye(-1); eye(1);
+  if (!look.sculpted) { eye(-1); eye(1); }   // sculpted heads have real eyes and lids
   // brows: individual hairs, raised and pulled together when terrified
   for (const s of [-1, 1]) {
     const x0 = CX + s * 9, x1 = CX + s * 44;
@@ -97,7 +97,7 @@ export function realFace(look, expr, bruise = 0) {
   // ---- mouth
   const lip = dead ? '#7a6a78' : choke ? '#6a3050' : look.lipstick ? '#9a2a34' : rgb(skin, 0.78, 1);
   const lipD = dead ? '#5a4a58' : look.lipstick ? '#7a1a24' : rgb(skin, 0.64, 1);
-  const gape = fear ? 9 : choke ? 11 : dead ? 6 : out ? 3 : 0;
+  const gape = look.sculpted ? 0 : fear ? 9 : choke ? 11 : dead ? 6 : out ? 3 : 0;   // a sculpted jaw opens for real
   if (gape) {
     g.fillStyle = '#1a0606'; g.beginPath(); g.ellipse(CX, MOUTH_Y + gape * 0.3, 14, gape, 0, 0, 7); g.fill();
     g.fillStyle = '#e6e0d0'; g.fillRect(CX - 10, MOUTH_Y - gape * 0.65, 20, 3);   // top teeth

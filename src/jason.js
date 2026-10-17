@@ -1,6 +1,7 @@
 // Jason himself, as you see him: rotted, oversized hands and a big body in a
 // torn work jacket. Everything is built from primitives with painted textures.
 import * as THREE from '../vendor/three.module.js';
+import { sd, smin, mesh } from './sculpt.js?v=7';
 
 function tex(w, h, draw, srgb = true) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -99,31 +100,59 @@ const sphere = (r, ws = 10, hs = 8) => new THREE.SphereGeometry(r, ws, hs);
 
 // Hand in the same frame the controllers use: built flat (fingers along -Z,
 // palm down), then rolled so the palm faces in. side: 'left' | 'right'.
+// Everything is sculpted: a thick palm with knuckles, tendons and the meat at
+// the base of the thumb, a wrist that runs on into the forearm, and fingers
+// of three jointed segments each, swollen at the knuckles.
+const handCache = {};
+const boxUV = (g, k = 4.5) => { const p = g.attributes.position, uv = new Float32Array(p.count * 2); for (let i = 0; i < p.count; i++) { uv[i * 2] = (p.getX(i) - p.getZ(i)) * k; uv[i * 2 + 1] = (p.getY(i) - p.getZ(i)) * k; } g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); return g; };
+function handGeos(s) {
+  if (handCache[s]) return handCache[s];
+  const K = 1.14, { ell, sphere, cone, box } = sd;
+  // the palm and wrist (in the flat frame, before it's placed)
+  const palm = (x, y, z) => {
+    let d = box(x, y, z, 0, 0, -0.005, 0.046 * K, 0.015 * K, 0.05 * K, 0.014);
+    d = smin(d, ell(x, y, z, s * 0.024, -0.006, 0.03, 0.03 * K, 0.02 * K, 0.035 * K), 0.02);                 // the ball of the thumb
+    d = smin(d, ell(x, y, z, -s * 0.026, -0.004, 0.032, 0.024 * K, 0.017 * K, 0.035 * K), 0.02);             // the heel of the hand
+    d = smin(d, cone(x, y, z, 0, -0.002, 0.04, 0, -0.002, 0.17, 0.034 * K, 0.04 * K), 0.03);                  // the wrist, running on into the forearm
+    for (let i = 0; i < 4; i++) {
+      const fx = s * (0.0315 - i * 0.021) * K;
+      d = smin(d, sphere(x, y, z, fx, 0.004, -0.05 * K, 0.0125 * K), 0.012);                                  // knuckles
+      d = smin(d, cone(x, y, z, fx * 0.85, 0.014 * K, 0.035, fx, 0.013 * K, -0.045 * K, 0.004, 0.004), 0.006);  // tendons across the back
+    }
+    return d;
+  };
+  const palmG = boxUV(mesh(palm, [-0.08, -0.05, -0.1], [0.08, 0.05, 0.2], 0.0045));
+  // one finger segment: from its knuckle (origin) along -Z for L; a bit wider than deep
+  const segCache = {};
+  const seg = (r0, r1, L, tip) => {
+    const key = [r0, r1, L, tip].map(v => (+v).toFixed(4)).join();
+    return segCache[key] ??= boxUV(mesh((x, y, z) => {
+      let d = cone(x / 1.12, y, z, 0, 0, 0, 0, 0, -L, r0, r1);
+      d = smin(d, sphere(x / 1.08, y, z, 0, 0.001, 0, r0 * 1.12), r0 * 0.6);                                  // the joint, swollen
+      if (tip) d = smin(d, ell(x, y, z, 0, -0.002, -L, r1 * 1.05, r1 * 0.85, r1 * 1.25), r1 * 0.5);          // fingertip pad
+      return d;
+    }, [-r0 * 1.6, -r0 * 1.6, -L - r1 * 2], [r0 * 1.6, r0 * 1.6, r0 * 1.6], Math.min(0.0028, r1 * 0.3)));
+  };
+  return handCache[s] = { palmG, seg };
+}
 export function buildHand(side, skin = skinMat) {
   const s = side === 'left' ? 1 : -1;
   const root = new THREE.Group(), flat = new THREE.Group();
   root.add(flat);
   flat.rotation.z = s * Math.PI / 2;
   flat.position.set(-s * 0.014, -0.032, 0.08);
+  const { palmG, seg } = handGeos(s);
   const add = (parent, geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); parent.add(m); return m; };
-  const K = 1.14;   // he's a big man
-  // palm: a thick, slightly cupped slab with a heel and the meat at the base of the thumb
-  add(flat, sphere(0.05, 16, 12), skin, 0, 0, -0.005, 0.98 * K, 0.34 * K, 1.12 * K);
-  add(flat, sphere(0.03, 12, 10), skin, s * 0.022, -0.006, 0.03, 1.1 * K, 0.75 * K, 1.2 * K);     // thenar
-  add(flat, sphere(0.028, 12, 10), skin, -s * 0.026, -0.004, 0.03, 0.9 * K, 0.7 * K, 1.3 * K);    // heel by the little finger
-  add(flat, seg(0.034, 0.03, 0.05), skin, 0, -0.002, 0.075, 1.15 * K, 0.6 * K, 1);                  // wrist
-  // tendons and a fat vein along the back of the hand
-  for (let i = 0; i < 4; i++) { const t = add(flat, seg(0.0042, 0.0035, 0.07), skin, s * (0.028 - i * 0.019) * K * 0.92, 0.016 * K, 0.025); t.rotation.y = s * (i - 1.5) * -0.08; }
+  const K = 1.14;
+  add(flat, palmG, skin);
+  // a fat vein across the back of the hand, and a rotted-through patch with the knuckle bone showing
   const veinMat = new THREE.MeshStandardMaterial({ color: 0x4a4a5a, roughness: 0.5 });
-  const v = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(s * 0.005, 0.0165 * K, 0.07), new THREE.Vector3(-s * 0.01, 0.0185 * K, 0.02), new THREE.Vector3(s * 0.012, 0.0185 * K, -0.02), new THREE.Vector3(s * 0.006, 0.016 * K, -0.045)]), 12, 0.0028, 5), veinMat);
-  flat.add(v);
-  // a rotted-through patch on the back of the hand with a knuckle bone showing
-  add(flat, sphere(0.012, 8, 6), woundMat, -s * 0.004, 0.0165 * K, -0.012, 1.6, 0.35, 1.1);
-  add(flat, sphere(0.006, 8, 6), boneMat, -s * 0.002, 0.019 * K, -0.014, 1.4, 0.6, 0.8);
-
+  flat.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(s * 0.005, 0.0165 * K, 0.09), new THREE.Vector3(-s * 0.01, 0.0185 * K, 0.03), new THREE.Vector3(s * 0.012, 0.0185 * K, -0.01), new THREE.Vector3(s * 0.006, 0.016 * K, -0.04)]), 14, 0.0028, 5), veinMat));
+  add(flat, sphere3(0.012), woundMat, -s * 0.004, 0.0165 * K, -0.012, 1.6, 0.35, 1.1);
+  add(flat, sphere3(0.006), boneMat, -s * 0.002, 0.019 * K, -0.014, 1.4, 0.6, 0.8);
   const fingers = [];
-  const LEN = [[0.048, 0.03, 0.024], [0.053, 0.034, 0.026], [0.049, 0.031, 0.024], [0.039, 0.025, 0.021]].map(a => a.map(v => v * K));
-  const RAD = [0.0108, 0.0112, 0.0105, 0.0092].map(v => v * K);
+  const LEN = [[0.046, 0.029, 0.023], [0.051, 0.033, 0.025], [0.047, 0.03, 0.023], [0.037, 0.024, 0.02]].map(a => a.map(v => v * K));
+  const RAD = [0.0118, 0.0122, 0.0114, 0.0098].map(v => v * K);
   for (let i = 0; i < 4; i++) {
     const joints = [];
     let parent = flat, z = -0.05 * K;
@@ -132,30 +161,25 @@ export function buildHand(side, skin = skinMat) {
       g.position.set(j === 0 ? s * (0.0315 - i * 0.021) * K : 0, j === 0 ? 0.002 : 0, z);
       if (j === 0) g.rotation.y = s * (i - 1.5) * 0.05;
       parent.add(g);
-      const r0 = RAD[i] * (1 - j * 0.12), r1 = RAD[i] * (1 - (j + 1) * 0.12), L = LEN[i][j];
-      add(g, sphere(r0 * 1.12, 10, 8), skin, 0, 0, 0, 1.05, 0.95, 1);   // swollen knuckle
-      add(g, seg(r0, r1, L), skin, 0, 0, 0, 1.08, 0.92, 1);
+      const r0 = RAD[i] * (1 - j * 0.11), r1 = RAD[i] * (1 - (j + 1) * 0.11), L = LEN[i][j];
+      add(g, seg(r0, r1, L, j === 2), skin);
       if (j === 2) {
-        add(g, sphere(r1, 10, 8), skin, 0, -0.001, -L, 1.05, 0.85, 1.25);   // fingertip pad
-        const nail = add(g, new THREE.BoxGeometry(r1 * 1.55, 0.0028, L * 0.62), nailMat, 0, r1 * 0.78, -L * 0.62);
+        const nail = add(g, new THREE.BoxGeometry(r1 * 1.55, 0.003, L * 0.6), nailMat, 0, r1 * 0.8, -L * 0.6);
         nail.rotation.x = 0.06; if (i === 1 || i === 3) nail.scale.z = 0.7;   // a couple broken off short
       }
-      if (i === 2 && j === 1) add(g, sphere(r0 * 0.7, 8, 6), woundMat, 0, r0 * 0.75, -L * 0.4, 1.2, 0.4, 1.4);
+      if (i === 2 && j === 1) add(g, sphere3(r0 * 0.7), woundMat, 0, r0 * 0.78, -L * 0.4, 1.2, 0.4, 1.4);
       joints.push(g); parent = g; z = -L;
     }
     fingers.push(joints);
   }
-  // thumb: metacarpal, then two segments
-  const thumb = new THREE.Group(); thumb.position.set(s * 0.034 * K, -0.008, 0.03); flat.add(thumb);
-  add(thumb, seg(0.0145 * K, 0.0128 * K, 0.04 * K), skin);
+  // thumb: three segments out of the ball of the thumb
+  const thumb = new THREE.Group(); thumb.position.set(s * 0.036 * K, -0.008, 0.028); flat.add(thumb);
+  add(thumb, seg(0.0158 * K, 0.0142 * K, 0.04 * K, false), skin);
   const thumb1 = new THREE.Group(); thumb1.position.z = -0.04 * K; thumb.add(thumb1);
-  add(thumb1, sphere(0.0135 * K, 10, 8), skin);
-  add(thumb1, seg(0.0128 * K, 0.0115 * K, 0.034 * K), skin);
+  add(thumb1, seg(0.0142 * K, 0.0128 * K, 0.034 * K, false), skin);
   const thumb2 = new THREE.Group(); thumb2.position.z = -0.034 * K; thumb1.add(thumb2);
-  add(thumb2, sphere(0.0118 * K, 10, 8), skin);
-  add(thumb2, seg(0.0115 * K, 0.0105 * K, 0.028 * K), skin);
-  add(thumb2, sphere(0.0105 * K, 10, 8), skin, 0, -0.001, -0.028 * K, 1, 0.85, 1.2);
-  add(thumb2, new THREE.BoxGeometry(0.017 * K, 0.003, 0.018 * K), nailMat, 0, 0.0095 * K, -0.02 * K);
+  add(thumb2, seg(0.0128 * K, 0.0115 * K, 0.028 * K, true), skin);
+  add(thumb2, new THREE.BoxGeometry(0.018 * K, 0.003, 0.018 * K), nailMat, 0, 0.0105 * K, -0.02 * K);
 
   const cur = { index: 0.2, rest: 0.2 };
   root.userData.pose = (index, rest, k = 1) => {
@@ -170,6 +194,7 @@ export function buildHand(side, skin = skinMat) {
   root.userData.pose(0.2, 0.2);
   return root;
 }
+const sphere3 = r => new THREE.SphereGeometry(r, 10, 8);
 
 // Ragged sleeve end: an open tube with a torn, uneven hem
 function raggedTube(r0, r1, len) {
@@ -213,7 +238,7 @@ export function makeBody(scene) {
   });
   // forearm: jacket sleeve with a torn cuff; the bare wrist shows below it
   const arms = [0, 1].map(() => [limb(0.058, jacketMat), limb(0.05, jacketMat, true)]);
-  const wrists = [0, 1].map(() => { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.04, 0.09, 12), skinMat); g.add(w); return w; });
+  const wrists = [0, 1].map(() => { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.041, 0.046, 1, 14), skinMat); g.add(w); return w; });
   const legs = [0, 1].map(() => [limb(0.08, pantsMat), limb(0.064, pantsMat)]);
   return { g, torso, hips, feet, wrists, arms, legs, phase: 0, speed: 0, last: new THREE.Vector3(), yaw: 0 };
 }

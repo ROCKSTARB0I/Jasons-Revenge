@@ -1,10 +1,13 @@
-// People: a jointed body that is animated (walking, running, hiding, on the
-// phone) while they're in control of it, and goes over to physics the moment
-// they aren't: knocked down, grabbed, dead. Shaped limbs, painted faces and
-// clothes, and wounds that tear the meshes apart.
+// People: sculpted bodies (skin over muscle, clothes over skin, organs inside)
+// on a jointed skeleton that is animated while they're in control and goes
+// over to physics when they aren't. Blades cut the meshes wherever they pass:
+// limbs, torsos and heads come apart along the line of the cut, capped with
+// flesh and bone, and what's inside falls out.
 import * as THREE from '../vendor/three.module.js';
-import { segDist } from './sim.js?v=6';
-import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=6';
+import { segDist } from './sim.js?v=7';
+import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=7';
+import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=7';
+import { sliceGeometry } from './slice.js?v=7';
 
 const V = THREE.Vector3, R = Math.random;
 const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), mb = new THREE.Matrix4(), UP = new V(0, 1, 0);
@@ -29,78 +32,14 @@ const BELOW = {
   lHip: ['lKn', 'lAn', 'lToe'], lKn: ['lAn', 'lToe'], lAn: ['lToe'], rHip: ['rKn', 'rAn', 'rToe'], rKn: ['rAn', 'rToe'], rAn: ['rToe'],
   neck: ['head'], spine: ['chest', 'neck', 'head', 'lSh', 'rSh', 'lEl', 'lWr', 'lFin', 'rEl', 'rWr', 'rFin'],
 };
-// parts: [name, from, to, cloth?]
 const PARTS = [
   ['hips', 'pelvis', 'spine'], ['torso', 'spine', 'neck'], ['neck', 'neck', 'head'], ['head', 'head', 'head'],
   ['lUpper', 'lSh', 'lEl'], ['lFore', 'lEl', 'lWr'], ['lHand', 'lWr', 'lFin'], ['rUpper', 'rSh', 'rEl'], ['rFore', 'rEl', 'rWr'], ['rHand', 'rWr', 'rFin'],
   ['lThigh', 'lHip', 'lKn'], ['lShin', 'lKn', 'lAn'], ['lFoot', 'lAn', 'lToe'], ['rThigh', 'rHip', 'rKn'], ['rShin', 'rKn', 'rAn'], ['rFoot', 'rAn', 'rToe'],
 ];
-
-// ---------------------------------------------------------------- geometry
-// A limb running up +Y from 0 to len. profile(t) -> [rx, rz, zOffset]; an optional ball at the root covers the joint.
-function limbGeo(len, profile, ball = true, rs = 14, ls = 12) {
-  const pos = [], uv = [], idx = [];
-  for (let j = 0; j <= ls; j++) {
-    const t = j / ls, [rx, rz, zo = 0] = profile(t);
-    for (let i = 0; i <= rs; i++) {
-      const a = i / rs * Math.PI * 2 + Math.PI;   // the seam runs down the back
-      pos.push(Math.sin(a) * rx, t * len, Math.cos(a) * rz + zo); uv.push(i / rs, t);
-    }
-  }
-  for (let j = 0; j < ls; j++) for (let i = 0; i < rs; i++) { const a = j * (rs + 1) + i, b = a + rs + 1; idx.push(a, a + 1, b, b, a + 1, b + 1); }
-  let g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
-  g.computeVertexNormals();
-  if (ball) { const [rx, rz] = profile(0); const s = new THREE.SphereGeometry(1, 12, 8); s.scale(rx * 0.98, Math.min(rx, rz) * 0.98, rz * 0.98); g = merge(g, s); }
-  return g;
-}
-function merge(a, b) {
-  a = a.index ? a.toNonIndexed() : a; b = b.index ? b.toNonIndexed() : b;
-  const g = new THREE.BufferGeometry();
-  for (const k of ['position', 'normal', 'uv']) {
-    const A = a.attributes[k].array, B = b.attributes[k].array, out = new Float32Array(A.length + B.length);
-    out.set(A); out.set(B, A.length); g.setAttribute(k, new THREE.BufferAttribute(out, a.attributes[k].itemSize));
-  }
-  return g;
-}
-const smooth = (a, b, t) => a + (b - a) * (t * t * (3 - 2 * t));
-const lerpK = (keys, t) => { for (let i = 1; i < keys.length; i++) if (t <= keys[i][0]) { const [t0, v0] = keys[i - 1], [t1_, v1] = keys[i]; return smooth(v0, v1, (t - t0) / (t1_ - t0)); } return keys.at(-1)[1]; };
-const geoCache = {};
-function bodyGeos(female) {
-  const key = female ? 'f' : 'm'; if (geoCache[key]) return geoCache[key];
-  const F = female ? 0.92 : 1;
-  const G = {
-    hips: limbGeo(0.3, t => [lerpK([[0, 0.14 * (female ? 1.08 : 1)], [0.5, 0.15 * (female ? 1.06 : 1)], [1, 0.13 * F]], t), lerpK([[0, 0.1], [0.5, 0.11], [1, 0.1]], t), 0], false),
-    torso: limbGeo(0.4, t => [lerpK([[0, 0.135 * F], [0.35, 0.145 * F], [0.7, 0.165 * F], [0.86, 0.17 * F], [1, 0.07]], t), lerpK([[0, 0.1], [0.35, 0.105], [0.6, female ? 0.125 : 0.115], [0.85, 0.1], [1, 0.055]], t), female ? lerpK([[0, 0], [0.55, 0.012], [0.75, 0.006], [1, 0]], t) : 0], false, 18, 14),
-    neck: limbGeo(0.13, t => [0.05 * F, 0.052, 0.005], false, 10, 3),
-    upper: limbGeo(0.29, t => [lerpK([[0, 0.052 * F], [0.35, 0.047 * F], [1, 0.037 * F]], t), lerpK([[0, 0.05], [0.4, 0.045], [1, 0.035]], t), 0]),
-    sleeve: limbGeo(0.15, t => [0.058 * F, 0.056, 0], false),
-    fore: limbGeo(0.25, t => [lerpK([[0, 0.038 * F], [0.25, 0.041 * F], [1, 0.027 * F]], t), lerpK([[0, 0.036], [0.3, 0.036], [1, 0.022]], t), 0]),
-    hand: limbGeo(0.17, t => [lerpK([[0, 0.03], [0.35, 0.045], [0.7, 0.042], [1, 0.02]], t) * F, lerpK([[0, 0.022], [0.4, 0.019], [1, 0.012]], t), 0], true, 10, 6),
-    thigh: limbGeo(0.42, t => [lerpK([[0, 0.085 * (female ? 1.05 : 1)], [0.3, 0.078], [1, 0.05]], t), lerpK([[0, 0.085], [0.3, 0.08], [1, 0.05]], t), lerpK([[0, 0], [0.3, 0.008], [1, 0]], t)]),
-    shin: limbGeo(0.415, t => [lerpK([[0, 0.05 * F], [0.28, 0.056 * F], [1, 0.034 * F]], t), lerpK([[0, 0.05], [0.25, 0.06], [1, 0.035]], t), lerpK([[0, 0], [0.25, -0.01], [1, 0]], t)]),
-    pants: limbGeo(0.42, t => [lerpK([[0, 0.092], [0.3, 0.085], [1, 0.058]], t), lerpK([[0, 0.092], [0.3, 0.087], [1, 0.058]], t), 0]),
-    pantsShin: limbGeo(0.415, t => [lerpK([[0, 0.058], [0.3, 0.062], [1, 0.05]], t), lerpK([[0, 0.058], [0.3, 0.066], [1, 0.05]], t), 0]),
-    shorts: limbGeo(0.2, t => [0.094 - t * 0.008, 0.094 - t * 0.008, 0], false),
-  };
-  // a shoe: rounded toe box running along +Y (the foot bone), sole flat
-  const shoe = new THREE.BoxGeometry(0.095, 0.17, 0.085, 4, 6, 3), p = shoe.attributes.position;
-  for (let i = 0; i < p.count; i++) { const y = p.getY(i) + 0.085, x = p.getX(i), z = p.getZ(i); const k = y > 0.12 ? 1 - (y - 0.12) * 4 : 1; p.setXYZ(i, x * k, y, z * Math.max(0.6, k) + (z > 0 ? 0 : 0)); }
-  shoe.computeVertexNormals(); G.shoe = shoe;
-  // the head: a sphere pushed into a skull, jaw and chin
-  const hg = new THREE.SphereGeometry(0.115, 36, 28), hp = hg.attributes.position;
-  for (let i = 0; i < hp.count; i++) {
-    let x = hp.getX(i), y = hp.getY(i), z = hp.getZ(i);
-    const ny = y / 0.115, nz = z / 0.115;
-    if (ny < 0) { x *= 1 - 0.22 * Math.min(1, -ny * 1.3); if (nz > 0.2) z *= 1 + 0.05 * -ny; }   // jaw narrows; chin forward
-    if (nz < 0 && ny > -0.3) z *= 1.07;                                                          // back of the skull
-    if (Math.abs(x / 0.115) > 0.7 && ny > -0.2 && ny < 0.4) x *= 0.95;                            // flat at the temples
-    if (nz > 0.5 && ny > 0.15 && ny < 0.35) z *= 1.025;                                          // brow
-    hp.setXYZ(i, x * 0.92, y * 1.06, z);
-  }
-  hg.computeVertexNormals(); G.head = hg;
-  return geoCache[key] = G;
-}
+const baseOf = n => n.split('#')[0];
+const kindOf = n => { const b = baseOf(n); return b.startsWith('l') || b.startsWith('r') ? b.slice(1).toLowerCase() : b; };   // 'lFore#2' -> 'fore'
+const RADIUS = { hips: 0.15, torso: 0.16, neck: 0.06, head: 0.12, upper: 0.055, fore: 0.045, hand: 0.045, thigh: 0.09, shin: 0.06, foot: 0.05, chunk: 0.07 };
 
 // ---------------------------------------------------------------- textures for the insides
 function tex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
@@ -153,6 +92,61 @@ function ik(root, end, l1, l2, bend, out) {
   return out.copy(root).addScaledVector(t3, a).addScaledVector(t4, h);
 }
 
+
+// the inside of a head: skull, then brain
+const brainTex = tex(128, 128, (g, s) => {
+  const c = s / 2;
+  g.fillStyle = '#d8c8a8'; g.beginPath(); g.arc(c, c, c, 0, 7); g.fill();
+  g.fillStyle = '#c4889a'; g.beginPath(); g.arc(c, c, c * 0.86, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(120,50,70,0.8)'; g.lineWidth = 2.5;
+  for (let i = 0; i < 26; i++) { g.beginPath(); let x = c + (R() - 0.5) * c * 1.4, y = c + (R() - 0.5) * c * 1.4; g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (R() - 0.5) * 16; y += (R() - 0.5) * 16; g.lineTo(x, y); } g.stroke(); }
+  g.fillStyle = 'rgba(90,0,0,0.6)'; for (let i = 0; i < 6; i++) { g.beginPath(); g.arc(c + (R() - 0.5) * c, c + (R() - 0.5) * c, 4 + R() * 6, 0, 7); g.fill(); }
+});
+const brainCapMat = new THREE.MeshStandardMaterial({ map: brainTex, roughness: 0.3, side: THREE.DoubleSide });
+const organCutMat = new THREE.MeshStandardMaterial({ color: 0x6a0c0a, roughness: 0.3, side: THREE.DoubleSide });
+// the heart on its own, centred on itself (for holding up)
+let heartG = null;
+function heartGeo() { if (!heartG) { heartG = organGeo('heart').clone(); heartG.translate(0.022, -0.2, -0.035); } return heartG; }
+// wet organs: a vein-laced texture, tinted per organ
+const organTex = tex(256, 128, (g, w, h) => {
+  g.fillStyle = '#d0d0d0'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 40; i++) { const gr = g.createRadialGradient(0, 0, 0, 0, 0, 20); g.save(); g.translate(R() * w, R() * h); gr.addColorStop(0, 'rgba(255,255,255,0.4)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(-20, -20, 40, 40); g.restore(); }
+  g.strokeStyle = 'rgba(80,0,20,0.5)'; g.lineWidth = 1.2;
+  for (let i = 0; i < 40; i++) { g.beginPath(); let x = R() * w, y = R() * h; g.moveTo(x, y); for (let k = 0; k < 6; k++) { x += (R() - 0.5) * 30; y += (R() - 0.5) * 20; g.lineTo(x, y); } g.stroke(); }
+});
+const organMats = {};
+function organMat(o) { return organMats[o.name] ??= new THREE.MeshStandardMaterial({ color: o.color, map: o.bone ? null : organTex, roughness: o.bone ? 0.6 : 0.22, metalness: 0.05 }); }
+// skin and cloth bump: pores and weave catch the light
+const skinBump = tex(256, 256, (g, w, h) => { g.fillStyle = '#808080'; g.fillRect(0, 0, w, h); for (let i = 0; i < 9000; i++) { const v = 100 + R() * 70 | 0; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(R() * w, R() * h, 1, 1); } });
+const clothBump = tex(128, 128, (g, w, h) => { for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const v = 110 + ((x + y) % 4 < 2 ? 30 : 0) + R() * 20 | 0; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, y, 1, 1); } });
+for (const t of [skinBump, clothBump]) { t.colorSpace = THREE.NoColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; }
+clothBump.repeat.set(6, 6);
+// an eye: white with fine veins, the iris at u = 0.25 (the sphere's +Z), a black pupil
+const eyeCache = {};
+function eyeTex(iris) {
+  return eyeCache[iris] ??= tex(256, 128, (g, w, h) => {
+    g.fillStyle = '#ece6dc'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = 'rgba(170,40,40,0.35)'; g.lineWidth = 0.8;
+    for (let i = 0; i < 18; i++) { g.beginPath(); let x = w * 0.25 + (R() < 0.5 ? -1 : 1) * (40 + R() * 30), y = R() * h; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += (w * 0.25 - x) * 0.25 + (R() - 0.5) * 8; y += (R() - 0.5) * 10; g.lineTo(x, y); } g.stroke(); }
+    const cx = w * 0.25, cy = h * 0.5, r = 22;
+    const col = '#' + iris.toString(16).padStart(6, '0');
+    g.fillStyle = col; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill();
+    for (let a = 0; a < 40; a++) { g.strokeStyle = a % 2 ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.25)'; g.beginPath(); g.moveTo(cx + Math.cos(a / 40 * 6.28) * 7, cy + Math.sin(a / 40 * 6.28) * 7); g.lineTo(cx + Math.cos(a / 40 * 6.28) * r, cy + Math.sin(a / 40 * 6.28) * r); g.stroke(); }
+    g.strokeStyle = '#141008'; g.lineWidth = 2.5; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.stroke();
+    g.fillStyle = '#060404'; g.beginPath(); g.arc(cx, cy, 8, 0, 7); g.fill();
+  });
+}
+const teethMat = new THREE.MeshStandardMaterial({ color: 0xe8e0c8, roughness: 0.3 });
+const mouthMat = new THREE.MeshLambertMaterial({ color: 0x3a0a0a });
+const eyeLidGeo = new THREE.SphereGeometry(0.0142, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), lowLidGeo = new THREE.SphereGeometry(0.0141, 16, 4, 0, Math.PI * 2, Math.PI * 0.72, Math.PI * 0.28);
+const eyeGeo = new THREE.SphereGeometry(0.0128, 18, 12);
+// where the jaw splits from the skull: below a plane through the corner of the mouth and the hinge by the ear
+const HINGE = new V(0, -0.033, -0.012), MOUTH = new V(0, -0.0625, 0.1);
+const jawN = new V().subVectors(MOUTH, HINGE).cross(new V(1, 0, 0)).normalize().negate();   // points down, away from the skull: the jaw side
+const jawD = jawN.dot(HINGE);
+
+let pieceN = 0;
+
 export class Human {
   // opts: x, z, yaw, scale, female, skin, hair, look, shirt, print, pants, shorts, shoes, kind, uniform
   constructor(scene, sim, blood, o) {
@@ -162,9 +156,10 @@ export class Human {
     this.alive = true; this.hp = o.hp ?? 100; this.maxHp = this.hp; this.bleed = 0;
     this.mode = 'anim'; this.pose = 'idle'; this.speed = 0; this.wantSpeed = 0; this.goal = null; this.face = null; this.look = null;
     this.phase = R() * 6; this.time = R() * 10; this.downT = 0; this.blend = 1; this.held = 0; this.chokeT = 0; this.outT = 0;
-    this.severed = new Set(); this.wounds = []; this.guts = []; this.extra = []; this.scared = false; this.cause = null; this.fireT = 0; this.burnT = 0;
-    this.headGone = false; this.split = null; this.heartOut = false; this.gutted = false; this.cleaved = false; this.unaware = true;
+    this.severed = new Set(); this.loose = new Set(); this.wounds = []; this.guts = []; this.extra = []; this.scared = false; this.cause = null; this.fireT = 0; this.burnT = 0;
+    this.headGone = false; this.split = null; this.heartOut = false; this.gutted = false; this.cleaved = false; this.unaware = true; this.legCut = false;
     this.female = !!o.female; this.kind = o.kind ?? 'counselor';
+    this.stubs = []; this.ownGeos = []; this.organs = [];
     this.p = {};
     const c = Math.cos(this.yaw), sn = Math.sin(this.yaw);
     for (const [k, [x, y, z]] of Object.entries(REST)) {
@@ -184,63 +179,107 @@ export class Human {
       L(sd + 'Hip', sd + 'An', 'min'); L('pelvis', sd + 'Kn', 'min');
     }
     L('lKn', 'rKn', 'min'); L('lAn', 'rAn', 'min');
-    this.len = {};
-    for (const [n, a, b] of PARTS) this.len[n] = this.p[a].dist(this.p[b]);
 
-    // ---- meshes
-    const G = bodyGeos(this.female);
-    const skin = new THREE.MeshLambertMaterial({ color: o.skin, map: fleshTex });
-    // each person's shirt is their own canvas, so blood soaks into it where they were cut
+    // ---- materials: skin with pores, a shirt that is this person's own canvas (blood soaks into it), trousers, shoes
+    const skin = new THREE.MeshLambertMaterial({ color: o.skin, map: fleshTex, bumpMap: skinBump, bumpScale: 0.5 });
     this.shirtCanvas = document.createElement('canvas'); this.shirtCanvas.width = this.shirtCanvas.height = 256;
     this.shirtCanvas.getContext('2d').drawImage(shirtTex(o.shirt, o.print).image, 0, 0, 256, 256);
     const shirtT = new THREE.CanvasTexture(this.shirtCanvas); shirtT.colorSpace = THREE.SRGBColorSpace;
-    const shirt = new THREE.MeshLambertMaterial({ map: shirtT });
-    const pants = new THREE.MeshLambertMaterial({ color: o.pants, map: fabricTex });
-    const shoe = new THREE.MeshLambertMaterial({ color: o.shoes ?? 0xd8d4cc });
-    this.mats = { skin, shirt, pants, shoe }; this.shirtT = shirtT;
+    const shirt = new THREE.MeshLambertMaterial({ map: shirtT, bumpMap: clothBump, bumpScale: 0.6 });
+    const pants = new THREE.MeshLambertMaterial({ color: o.pants, map: fabricTex, bumpMap: clothBump, bumpScale: 0.8 });
+    const shoe = new THREE.MeshLambertMaterial({ color: o.shoes ?? 0xd8d4cc, bumpMap: clothBump, bumpScale: 0.5 });
+    const hair = new THREE.MeshLambertMaterial({ color: o.hair ?? 0x2a1a10, map: fabricTex, bumpMap: clothBump, bumpScale: 1.5 });
+    this.headMat = new THREE.MeshLambertMaterial({ map: realFace({ ...o.look, sculpted: true }, 'neutral'), bumpMap: skinBump, bumpScale: 0.4 });
+    this.mats = { skin, shirt, pants, shoe, hair }; this.shirtT = shirtT;
     this.group = new THREE.Group(); scene.add(this.group);
-    const mk = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; return m; };
+
+    // ---- the sculpted parts; each layer knows what its cross-section looks like when it's cut
+    const G = bodyParts(this.female);
     this.parts = {};
-    const part = (name, ...meshes) => { const g = new THREE.Group(); for (const m of meshes) g.add(m); this.group.add(g); this.parts[name] = { name, g, from: PARTS.find(p => p[0] === name)[1], to: PARTS.find(p => p[0] === name)[2], gone: false }; return g; };
-    const hipsM = mk(G.hips, pants); hipsM.position.y = -0.1;
-    part('hips', hipsM);
-    part('torso', mk(G.torso, shirt));
-    part('neck', mk(G.neck, skin));
-    this.headMat = new THREE.MeshLambertMaterial({ map: realFace(o.look, 'neutral') });
-    const head = mk(G.head, this.headMat);
-    part('head', head);
-    // nose, ears, hair
-    const nose = mk(new THREE.ConeGeometry(0.016, 0.042, 8), skin); nose.position.set(0, -0.012, 0.112); nose.rotation.x = Math.PI / 2 + 0.3; nose.scale.set(1, 1, 0.75);
-    const tip = mk(new THREE.SphereGeometry(0.012, 8, 6), skin); tip.position.set(0, -0.03, 0.124);
-    this.parts.head.g.add(nose, tip);
-    for (const sx of [-1, 1]) { const ear = mk(new THREE.SphereGeometry(0.026, 10, 8), skin); ear.scale.set(0.32, 1, 0.62); ear.position.set(sx * 0.104, -0.006, -0.006); this.parts.head.g.add(ear); }
-    if (o.hair != null) {
-      const hm = new THREE.MeshLambertMaterial({ color: o.hair, map: fabricTex });
-      const cap = mk(new THREE.SphereGeometry(0.119, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.45), hm); cap.scale.set(0.95, 1.08, 1.05); cap.rotation.x = -0.32; cap.position.set(0, 0.016, -0.012);
-      this.parts.head.g.add(cap);
-      if (o.look?.long) {
-        for (let i = 0; i < 5; i++) { const strand = mk(new THREE.CapsuleGeometry(0.035, 0.16, 3, 8), hm); strand.scale.set(1.3, 1, 0.55); strand.position.set((i - 2) * 0.042, -0.1, -0.085 + Math.abs(i - 2) * 0.012); strand.rotation.z = (i - 2) * 0.08; this.parts.head.g.add(strand); }
-      }
-    }
-    if (o.uniform) {   // police cap
+    const layer = (g, geo, mat, cap) => { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.userData.layer = true; m.userData.cap = cap; g.add(m); return m; };
+    const part = (name, from, to, capMat) => { const g = new THREE.Group(); g.scale.setScalar(s); this.group.add(g); return this.parts[name] = { name, g, from, to, gone: false, capMat }; };
+    const hips = part('hips', 'pelvis', 'spine', waistMat); layer(hips.g, G.hips.skin, pants, true);
+    const torso = part('torso', 'spine', 'neck', waistMat); layer(torso.g, G.torso.skin, shirt, true);
+    const neck = part('neck', 'neck', 'head', stumpMat); layer(neck.g, G.neck.skin, skin, true);
+    const head = part('head', 'head', 'head', brainCapMat);
+    this.buildFace(head.g, G.head.skin, skin, hair, o);
+    if (o.uniform) {   // police: cap, badge, belt
       const capM = new THREE.MeshStandardMaterial({ color: 0x1c2230, roughness: 0.6 });
-      const top = mk(new THREE.CylinderGeometry(0.128, 0.118, 0.07, 18), capM); top.position.y = 0.1; this.parts.head.g.add(top);
-      const peak = mk(new THREE.BoxGeometry(0.16, 0.012, 0.08), new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.3 })); peak.position.set(0, 0.07, 0.12); peak.rotation.x = 0.25; this.parts.head.g.add(peak);
-      const badge = mk(new THREE.BoxGeometry(0.03, 0.035, 0.005), new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.8, roughness: 0.3 })); badge.position.set(0.08, 0.3, 0.12); this.parts.torso.g.add(badge);
-      const belt = mk(new THREE.CylinderGeometry(0.15, 0.15, 0.05, 16, 1, true), new THREE.MeshStandardMaterial({ color: 0x0e0e0e, roughness: 0.4 })); belt.scale.z = 0.72; belt.position.y = 0.17; this.parts.hips.g.add(belt);
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(0.098, 0.09, 0.07, 18), capM); top.position.y = 0.105; head.g.add(top);
+      const peak = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.012, 0.07), new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.3 })); peak.position.set(0, 0.075, 0.1); peak.rotation.x = 0.25; head.g.add(peak);
+      const badge = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.035, 0.005), new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.8, roughness: 0.3 })); badge.position.set(0.08, 0.27, 0.115); torso.g.add(badge);
+    }
+    // what's inside: the organs, hidden until someone opens them up
+    for (const org of ORGANS) {
+      const host = this.parts[org.group];
+      const m = new THREE.Mesh(organGeo(org.name), organMat(org)); m.frustumCulled = false; m.visible = false; m.userData.organ = org;
+      host.g.add(m); this.organs.push(m);
     }
     for (const sd of ['l', 'r']) {
-      part(sd + 'Upper', mk(G.upper, skin), mk(G.sleeve, shirt));
-      part(sd + 'Fore', mk(G.fore, o.uniform ? shirt : skin));
-      const hand = mk(G.hand, skin); const thumb = mk(new THREE.CapsuleGeometry(0.014, 0.04, 3, 8), skin); thumb.position.set(sd === 'l' ? 0.03 : -0.03, 0.05, 0.02); thumb.rotation.z = sd === 'l' ? -0.5 : 0.5;
-      part(sd + 'Hand', hand, thumb);
-      part(sd + 'Thigh', mk(G.thigh, o.shorts ? skin : pants), ...(o.shorts ? [mk(G.shorts, pants)] : [mk(G.pants, pants)]));
-      part(sd + 'Shin', mk(G.shin, skin), ...(o.shorts ? [] : [mk(G.pantsShin, pants)]));
-      const sh = mk(G.shoe, shoe); part(sd + 'Foot', sh);
+      const up = part(sd + 'Upper', sd + 'Sh', sd + 'El', stumpMat); layer(up.g, G.upper.skin, skin, true); layer(up.g, o.uniform ? G.upper.longSleeve : G.upper.sleeve, shirt, false);
+      const fo = part(sd + 'Fore', sd + 'El', sd + 'Wr', stumpMat); layer(fo.g, G.fore.skin, skin, true); if (o.uniform) layer(fo.g, G.fore.longSleeve, shirt, false);
+      const ha = part(sd + 'Hand', sd + 'Wr', sd + 'Fin', stumpMat); const hm = layer(ha.g, G.hand.skin, skin, true); if (sd === 'l') hm.scale.x = -1;   // the left hand is the mirror of the right
+      const th = part(sd + 'Thigh', sd + 'Hip', sd + 'Kn', stumpMat);
+      if (o.shorts) { layer(th.g, G.thigh.skin, skin, true); layer(th.g, G.thigh.shorts, pants, false); } else layer(th.g, G.thigh.pants, pants, true);
+      const sh = part(sd + 'Shin', sd + 'Kn', sd + 'An', stumpMat);
+      layer(sh.g, G.shin.skin, skin, true); if (!o.shorts) layer(sh.g, G.shin.pants, pants, false);
+      const ft = part(sd + 'Foot', sd + 'An', sd + 'Toe', stumpMat); layer(ft.g, G.foot.skin, shoe, true);
     }
     this.caps = [];
     this.anim = {}; for (const k in REST) this.anim[k] = new V();
     this.sync();
+  }
+
+  // ---- the face: skull, a jaw that opens, eyes that move, lids that blink
+  buildFace(g, headGeo, skin, hairMat, o) {
+    // split the sculpted head into skull and jaw along the line of the mouth
+    const { front: jawGeo, back: skullGeo } = sliceGeometry(headGeo, jawN, jawD, false);
+    const lay = (geo, mat, parent, cap = true) => { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.userData.layer = true; m.userData.cap = cap; parent.add(m); return m; };
+    lay(skullGeo, this.headMat, g);
+    const pivot = new THREE.Group(); pivot.position.copy(HINGE); g.add(pivot);
+    const jaw = lay(jawGeo, this.headMat, pivot); jaw.position.copy(HINGE).negate();
+    // inside the mouth
+    const cav = new THREE.Mesh(new THREE.SphereGeometry(0.026, 12, 8), mouthMat); cav.position.set(0, -0.064, 0.072); cav.scale.set(1.1, 0.8, 0.9); g.add(cav);
+    const upT = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.008, 0.014), teethMat); upT.position.set(0, -0.0585, 0.089); g.add(upT);
+    const loT = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.008, 0.012), teethMat); loT.position.set(0, -0.0665, 0.086); jaw.add(loT);
+    // eyes and lids
+    const eyeMat = new THREE.MeshStandardMaterial({ map: eyeTex(o.look?.eyes ?? 0x4a2a14), roughness: 0.15 });
+    this.eyes = []; this.lids = [];
+    for (const sx of [-1, 1]) {
+      const e = new THREE.Mesh(eyeGeo, eyeMat); e.position.set(sx * 0.032, 0.013, 0.086); g.add(e); this.eyes.push(e);
+      const lid = new THREE.Mesh(eyeLidGeo, skin); lid.position.copy(e.position); g.add(lid); this.lids.push(lid);
+      const low = new THREE.Mesh(lowLidGeo, skin); low.position.copy(e.position); low.rotation.x = -0.25; g.add(low);
+    }
+    // hair
+    if (o.hair != null) lay(o.look?.long ? bodyParts(this.female).head.longHair : bodyParts(this.female).head.hair, hairMat, g, false);
+    this.jaw = pivot; this.faceT = { blink: 2 + R() * 3, blinkT: 0, look: new V(0, 0, 1), jaw: 0, glance: 0 };
+  }
+  // every frame: blink, look, talk
+  animateFace(dt) {
+    if (!this.eyes || !this.jaw || this.headGone || this.cleaved) return;
+    const f = this.faceT, dead = !this.alive, out = this.state === 'out' || this.pose === 'sleep';
+    // where the eyes point: at Jason if they've seen him, otherwise glancing about
+    if ((f.glance -= dt) <= 0) { f.glance = 0.6 + R() * 2.5; f.want = new V((R() - 0.5) * 0.8, (R() - 0.5) * 0.4, 1).normalize(); }
+    let want = f.want ?? new V(0, 0, 1);
+    if (this.lookAtW && !dead && !out) { this.parts.head.g.updateMatrixWorld(true); want = this.parts.head.g.worldToLocal(t1.copy(this.lookAtW)).normalize(); if (want.z < 0.2) want.z = 0.2; want.normalize(); }
+    if (dead) want = t2.set(0.15, 0.55, 0.8).normalize();   // rolled up and glassy
+    f.look.lerp(want, Math.min(1, dt * (this.scared ? 14 : 6))).normalize();
+    for (const e of this.eyes) e.quaternion.setFromUnitVectors(t3.set(0, 0, 1), f.look);
+    // lids: blink every few seconds, wide with terror, shut asleep, half-open dead
+    f.blink -= dt; if (f.blink <= 0) { f.blink = (this.scared ? 1 : 2.5) + R() * 3; f.blinkT = 0.14; }
+    f.blinkT = Math.max(0, f.blinkT - dt);
+    let lid = this.scared ? -0.75 : -0.45;
+    if (f.blinkT > 0) lid = 1.35; if (out) lid = 1.4; if (dead) lid = 0.35; if (this.choked && this.chokeT > 0.4) lid = -0.95;
+    for (const l of this.lids) l.rotation.x += (lid - l.rotation.x) * Math.min(1, dt * (f.blinkT > 0 ? 40 : 10));
+    // the jaw: hangs open dead, works when they talk, gapes when they scream
+    let jaw = 0.02;
+    const talking = this.line && this.line.end > (this.clock?.() ?? 0);
+    if (talking) jaw = this.lineBig ? 0.32 + Math.sin(this.time * 9) * 0.05 : 0.08 + Math.abs(Math.sin(this.time * 17)) * 0.16;
+    else if (this.scared && this.alive) jaw = 0.06 + Math.sin(this.time * 3) * 0.02;
+    if (this.choked && this.chokeT > 0.4) jaw = 0.25;
+    if (dead) jaw = 0.22; if (out) jaw = 0.07;
+    f.jaw += (jaw - f.jaw) * Math.min(1, dt * 14);
+    this.jaw.rotation.x = f.jaw;
   }
 
   // ---------------------------------------------------------------- animation
@@ -329,6 +368,13 @@ export class Human {
       if (k >= 1) p.moveTo(x, y, z, true); else p.moveTo(p.x + (x - p.x) * k, p.y + (y - p.y) * k, p.z + (z - p.z) * k, true);
       p.locked = true;
     }
+    // stumps: a cut-off limb's remaining end follows the joint it hangs from
+    for (const st of this.stubs) {
+      if (this.loose.has(st.from) || st.p.hand) continue;
+      const A0 = this.anim[st.from], A1 = this.anim[st.to];
+      const lx = A0.x + (A1.x - A0.x) * st.t, ly = A0.y + (A1.y - A0.y) * st.t, lz = A0.z + (A1.z - A0.z) * st.t;
+      st.p.moveTo(this.root.x + (lx * c + lz * sn) * s, this.ground + ly * s, this.root.z + (-lx * sn + lz * c) * s, true); st.p.locked = true;
+    }
     if (this.blend < 1) this.blend = Math.min(1, this.blend + dt * 2);
   }
   // control: called every frame by the game
@@ -352,6 +398,7 @@ export class Human {
       this.applyPose(dt);
     } else {
       for (const k in this.p) if (!this.p[k].hand) this.p[k].locked = false;
+      for (const st of this.stubs) if (!st.p.hand) st.p.locked = false;
       if (this.alive) this.struggle(dt);
       if (this.alive && !this.held && this.state !== 'out') {
         this.downT -= dt;
@@ -362,14 +409,16 @@ export class Human {
     // face
     const expr = !this.alive ? 'dead' : this.state === 'out' || this.pose === 'sleep' ? 'out' : this.chokeT > 0.4 && this.choked ? 'choke' : this.hp < this.maxHp * 0.55 ? 'bleed' : this.scared ? 'fear' : 'neutral';
     const bk = expr + Math.floor(this.bruise ?? 0);
-    if (bk !== this.expr && !this.headGone) { this.expr = bk; this.headMat.map = realFace(this.o.look, expr, Math.floor(this.bruise ?? 0)); this.headMat.needsUpdate = true; }
+    if (bk !== this.expr && !this.headGone) { this.expr = bk; this.headMat.map = realFace({ ...this.o.look, sculpted: true }, expr, Math.floor(this.bruise ?? 0)); this.headMat.needsUpdate = true; }
+    this.animateFace(dt);
   }
-  canStand() { return !['lHip', 'rHip', 'lKn', 'rKn'].some(j => this.severed.has(j)) && !this.split; }
+  canStand() { return !['lHip', 'rHip', 'lKn', 'rKn', 'lAn', 'rAn'].some(j => this.severed.has(j)) && !this.split && !this.legCut; }
   // go over to physics: tripped, hit, grabbed, dead
   ragdoll(seconds = 0) {
     if (this.mode === 'rag') { this.downT = Math.max(this.downT, seconds); return; }
     this.mode = 'rag'; this.downT = seconds;
-    for (const k in this.p) this.p[k].locked = false;
+    for (const k in this.p) if (!this.p[k].hand) this.p[k].locked = false;
+    for (const st of this.stubs) st.p.locked = false;
   }
   getUp(floorAt) {
     const P = this.p;
@@ -399,27 +448,27 @@ export class Human {
     }
   }
 
+
   // ---------------------------------------------------------------- hits and wounds
   // which part a segment (a blade, a fist) passes through: { part, t, d }
   partAt(a, b, pad = 0.03) {
     let best = null, bd = 1e9;
-    const R_ = { hips: 0.15, torso: 0.16, neck: 0.06, head: 0.12, lUpper: 0.055, rUpper: 0.055, lFore: 0.042, rFore: 0.042, lHand: 0.045, rHand: 0.045, lThigh: 0.085, rThigh: 0.085, lShin: 0.058, rShin: 0.058, lFoot: 0.05, rFoot: 0.05 };
     for (const n in this.parts) {
       const pt = this.parts[n]; if (pt.gone) continue;
-      const pa = pt.fromPt ?? this.p[pt.from], pb = pt.to === pt.from ? pa : this.p[pt.to];
-      const r = (R_[n] + pad) * this.s, d2 = segDist(a, b, pa, pb);
+      const [pa, pb] = this.ends(pt);
+      const r = ((RADIUS[pt.chunk ? 'chunk' : kindOf(n)] ?? 0.05) + pad) * this.s, d2 = segDist(a, b, pa, pb);
       if (d2 < r * r && d2 < bd) { bd = d2; best = { part: n, t: segDist.t, s: segDist.s, d: Math.sqrt(d2) }; }
     }
     return best;
   }
-  jp(name) { return this.partFrom?.[name] ?? this.p[name]; }
-  // a cut, a stab, a blow. dir: the way the blade was moving (unit). Returns what happened.
+  ends(pt) { const a = pt.fromPt ?? this.p[pt.from]; return [a, pt.toPt ?? (pt.to === pt.from ? a : this.p[pt.to])]; }
+  // a cut, a stab, a blow. dir: the way the blade was moving (unit).
   hit(partName, point, dir, kind, dmg) {
     const pt = this.parts[partName]; if (!pt || pt.gone) return null;
     this.unaware = false;
     this.wound(partName, point, dir, kind);
-    const isHead = partName === 'head' || partName === 'neck';
-    this.hp -= dmg * (isHead ? 2.2 : partName === 'torso' || partName === 'hips' ? 1 : 0.55);
+    const k = kindOf(partName), isHead = k === 'head' || k === 'neck';
+    this.hp -= dmg * (isHead ? 2.2 : k === 'torso' || k === 'hips' ? 1 : 0.55);
     this.bleed += kind === 'stab' ? 3 : kind === 'slash' ? 2 : 0.3;
     this.blood.spray(point, t1.copy(dir).multiplyScalar(-0.3).add(t2.set(0, 0.4, 0)).normalize(), kind === 'blunt' ? 6 : 14, 2.5, 0.6);
     if (this.alive && this.mode === 'anim' && (kind === 'blunt' || dmg > 25)) this.ragdoll(1.2 + R());
@@ -427,25 +476,22 @@ export class Human {
     return pt;
   }
   wound(partName, point, dir, kind) {
-    const pt = this.parts[partName]; if (!pt || pt.gone || this.wounds.length > 40) return;
-    // into the part's frame; put the decal on the surface facing the hit
+    const pt = this.parts[partName]; if (!pt || pt.gone || this.wounds.length > 40 || pt.chunk) return;
     pt.g.updateMatrixWorld(true);
-    const local = pt.g.worldToLocal(t1.copy(point));
-    const ax = partName === 'head' ? new V(local.x, local.y, local.z) : new V(local.x, 0, local.z);
+    const local = pt.g.worldToLocal(t1.copy(point)), k = kindOf(partName);
+    const ax = k === 'head' ? new V(local.x, local.y, local.z) : new V(local.x, 0, local.z);
     if (ax.lengthSq() < 1e-6) ax.set(0, 0, 1);
     ax.normalize();
-    const radius = { head: 0.11, torso: 0.15, hips: 0.14, neck: 0.05 }[partName] ?? (partName.includes('Thigh') ? 0.08 : partName.includes('Upper') ? 0.055 : 0.045);
+    const radius = { head: 0.1, torso: 0.14, hips: 0.14, neck: 0.05, thigh: 0.08, upper: 0.05, shin: 0.05 }[k] ?? 0.04;
     const m = new THREE.Mesh(plane, woundMat[kind === 'stab' ? 'stab' : kind === 'blunt' ? 'hole' : 'slash']);
-    m.position.set(ax.x * radius * 1.06, partName === 'head' ? ax.y * radius : Math.max(0, Math.min(this.len[partName] ?? 0.3, local.y)), ax.z * radius * 1.06);
+    m.position.set(ax.x * radius * 1.08, k === 'head' ? ax.y * radius : Math.max(0, Math.min(LEN[k] ?? 0.3, local.y)), ax.z * radius * 1.08);
     m.lookAt(t2.copy(m.position).add(t3.copy(ax)));
-    // slashes run across the line of the cut
     const ld = t3.copy(dir).transformDirection(mb.copy(pt.g.matrixWorld).invert());
     m.rotateZ(Math.atan2(ld.y, ld.x) + Math.PI / 2);
     const sz = kind === 'slash' ? 0.07 : kind === 'stab' ? 0.05 : 0.06;
     m.scale.set(sz * 0.6, sz * (kind === 'slash' ? 1.8 : 1), 1);
     pt.g.add(m); this.wounds.push(m);
-    // soak the shirt where it went in
-    if (partName === 'torso' || partName === 'lUpper' || partName === 'rUpper') this.soak(partName === 'torso' ? Math.atan2(local.x, local.z) / (Math.PI * 2) + 0.5 : 0.1, partName === 'torso' ? 1 - local.y / 0.4 : 0.9, kind === 'stab' ? 22 : 30);
+    if (k === 'torso' || k === 'upper') this.soak(k === 'torso' ? Math.atan2(local.x, local.z) / (Math.PI * 2) + 0.5 : 0.1, k === 'torso' ? 1 - local.y / 0.4 : 0.9, kind === 'stab' ? 22 : 30);
   }
   // blood spreading through the shirt
   soak(u, v, r) {
@@ -460,47 +506,213 @@ export class Human {
     this.shirtT.needsUpdate = true;
   }
 
-  // ---------------------------------------------------------------- taking them apart
+
+  // ---------------------------------------------------------------- cutting them up
+  // Slice a part along the plane through point with normal (world space).
+  slicePart(name, point, normal) {
+    const pt = this.parts[name]; if (!pt || pt.gone) return false;
+    const k = kindOf(name);
+    if (k === 'neck' && !pt.chunk) return this.decapitate(1.2, point, normal);
+    if ((k === 'torso' || k === 'hips') && !pt.chunk && !this.severed.has('spine')) return this.halve(point, normal, name);
+    pt.g.updateMatrixWorld(true);
+    const oldW = pt.g.matrixWorld.clone();
+    // which side stays with this part's own points
+    const ref = pt.chunk || k === 'torso' || k === 'hips' ? new V(0, 0, 0) : k === 'head' ? new V(0, -0.1, -0.02) : new V(0, 0.001, 0);
+    const { stay, go } = this.cutMeshes(pt.g, point, normal, ref, pt.capMat);
+    if (!go.length) return false;
+    let piece;
+    if (k === 'head' || pt.chunk || k === 'torso' || k === 'hips') piece = this.freePiece(go, oldW, name, pt.capMat, normal);
+    else piece = this.cutLimb(pt, point, normal, go, oldW);
+    // what spilled
+    const spill = t4.copy(normal);
+    this.blood.spray(point, spill, 30, 3, 0.8); this.blood.spray(point, spill.negate(), 20, 2.5, 0.8);
+    if (k === 'head' && !pt.chunk) {
+      this.cleaved = true; this.cause = Math.abs(t1.copy(normal).dot(t2.subVectors(this.p.head, this.p.neck).normalize())) > 0.7 ? 'top of the head sliced off' : 'head split open';
+      this.blood.chunk(point, 'brain', 4, 1.5); this.blood.spurt(this.p.head, out => out.set(0, 1, 0), 5, 1);
+      this.hp = 0; this.die();
+    }
+    return piece || true;
+  }
+  // cut every layer of a part's group; returns the meshes that stay and the new meshes that go
+  cutMeshes(g, point, normal, refLocal, capMat) {
+    g.updateMatrixWorld(true);
+    // flatten anything nested (the jaw) into direct children first, so every mesh is in the part's own space
+    for (const ch of [...g.children]) if (ch.isGroup) { for (const m of [...ch.children]) { ch.updateMatrixWorld(true); const w = m.matrixWorld.clone(); g.attach(m); } g.remove(ch); if (ch === this.jaw) this.jaw = null; }
+    const stay = [], go = [];
+    for (const m of [...g.children]) {
+      if (!m.isMesh) continue;
+      m.updateMatrix();
+      const toMesh = mb.copy(g.matrixWorld).multiply(m.matrix).invert();
+      const lp = t1.copy(point).applyMatrix4(toMesh), ln = t2.copy(normal).transformDirection(toMesh), d = ln.dot(lp);
+      const refM = t3.copy(refLocal).applyMatrix4(mb.copy(m.matrix).invert());
+      const keepFront = ln.dot(refM) - d > 0;
+      if (m.userData.layer && m.geometry.attributes.position.count > 0) {
+        const { front, back } = sliceGeometry(m.geometry, ln.clone(), d, m.userData.cap);
+        const keep = keepFront ? front : back, lose = keepFront ? back : front;
+        const mats = Array.isArray(m.material) ? m.material : [m.material, capMat];
+        if (lose) { const nm = new THREE.Mesh(lose, mats); nm.matrix.copy(m.matrix); nm.matrixAutoUpdate = false; nm.userData = { ...m.userData }; nm.frustumCulled = false; go.push(nm); this.ownGeos.push(lose); }
+        if (keep) { m.geometry = keep; m.material = mats; this.ownGeos.push(keep); stay.push(m); } else g.remove(m);
+      } else {
+        // attachments (wounds, eyes, teeth, organs): go with whichever side they're on
+        const pos = t3.setFromMatrixPosition(m.matrix);
+        const side = t4.copy(normal).transformDirection(mb.copy(g.matrixWorld).invert());
+        const pl = t1.copy(point).applyMatrix4(mb.copy(g.matrixWorld).invert());
+        const s = side.dot(t2.subVectors(pos, pl)), sr = side.dot(t2.subVectors(refLocal, pl));
+        if (m.userData.organ) continue;   // organs are dealt with by whoever opened the body
+        if ((s > 0) !== (sr > 0)) { g.remove(m); m.matrixAutoUpdate = false; go.push(m); }
+      }
+    }
+    return { stay, go };
+  }
+  // put meshes (with matrices relative to a group whose world matrix was oldW) into another group, keeping where they are
+  rehome(meshes, oldW, g) {
+    g.updateMatrixWorld(true);
+    const inv = mb.copy(g.matrixWorld).invert().multiply(oldW);
+    for (const m of meshes) { const mm = new THREE.Matrix4().multiplyMatrices(inv, m.matrix); m.matrixAutoUpdate = true; mm.decompose(m.position, m.quaternion, m.scale); g.add(m); }
+  }
+  // a limb cut part-way: the near end stays as a stump, the far end (and everything past it) comes away
+  cutLimb(pt, point, normal, go, oldW) {
+    const [a, b] = this.ends(pt);
+    const ab = t1.set(b.x - a.x, b.y - a.y, b.z - a.z), den = normal.dot(ab);
+    let t = Math.abs(den) > 1e-4 ? normal.dot(t2.set(point.x - a.x, point.y - a.y, point.z - a.z)) / den : 0.5;
+    t = Math.max(0.06, Math.min(0.94, t));
+    const cx = a.x + ab.x * t, cy = a.y + ab.y * t, cz = a.z + ab.z * t;
+    const below = new Set([b, ...(pt.belowPts ?? (BELOW[pt.to] ?? []).map(k => this.p[k]))]);
+    // the far side loses every link to the near side
+    for (const l of this.links) if (below.has(l.a) !== below.has(l.b)) l.cut = true;
+    this.sim.links = this.sim.links.filter(l => !l.cut); this.links = this.links.filter(l => !l.cut);
+    const mk = (x, y, z, tag) => { const p = this.sim.point(x, y, z, 0.04 * this.s, 0.6, this, tag); p.px = x - (b.x - b.px); p.py = y - (b.y - b.py); p.pz = z - (b.z - b.pz); return p; };
+    // the stump: a new end for this part, held rigid to the joint it hangs from
+    const stub = mk(cx, cy, cz, 'stub'); stub.px = cx; stub.py = cy; stub.pz = cz;
+    this.links.push(this.sim.link(a, stub, 'rod', 1, null, this));
+    const anchor = this.links.find(l => !l.cut && (l.a === a || l.b === a) && !below.has(l.a === a ? l.b : l.a) && (l.a === a ? l.b : l.a) !== stub);
+    if (anchor) this.links.push(this.sim.link(anchor.a === a ? anchor.b : anchor.a, stub, 'rod', 0.6, null, this));
+    if (!pt.chunk) this.stubs.push({ p: stub, from: pt.from, to: pt.to, t });
+    pt.toPt = stub;
+    // the piece: from the cut to b, with a third point so it knows which way it's turned
+    const c2 = mk(cx, cy, cz, 'cut');
+    const side = this.sideOf(pt, t3).normalize();
+    const sp = mk(cx + side.x * 0.06, cy + side.y * 0.06, cz + side.z * 0.06, 'side');
+    for (const [p, q] of [[c2, b], [sp, c2], [sp, b]]) this.links.push(this.sim.link(p, q, 'rod', 1, null, this));
+    const name = baseOf(pt.name) + '#' + (++pieceN);
+    const g = new THREE.Group(); g.scale.setScalar(this.s); this.group.add(g);
+    const piece = this.parts[name] = { name, g, from: pt.from, to: pt.to, fromPt: c2, toPt: pt.toPt === stub ? b : b, sideFix: { o: c2, s: sp }, gone: false, capMat: pt.capMat, belowPts: [...below].filter(p => p !== b) };
+    piece.toPt = b;
+    // parts hanging off b now turn with the piece
+    for (const q of Object.values(this.parts)) if (q !== piece && below.has(q.fromPt ?? this.p[q.from])) q.sideFix = { o: c2, s: sp };
+    for (const key in this.p) if (below.has(this.p[key])) this.loose.add(key);
+    this.syncPart(piece); g.updateMatrixWorld(true);
+    this.rehome(go, oldW, g);
+    // consequences
+    const k = kindOf(pt.name);
+    if (k === 'thigh' || k === 'shin' || k === 'foot') this.legCut = true;
+    this.blood.spurt(stub, out => out.set(stub.x - a.x, stub.y - a.y, stub.z - a.z).normalize(), this.alive ? 8 : 3, k === 'thigh' ? 1.5 : 1);
+    this.blood.spurt(c2, out => out.set(c2.x - b.x, c2.y - b.y, c2.z - b.z).normalize(), 2, 0.6);
+    this.blood.pool(this.p.pelvis, 1.4);
+    for (const p of [c2, sp, ...below]) p.addVel((R() - 0.5) * 1.2, 0.8, (R() - 0.5) * 1.2);
+    this.bleed += k === 'thigh' || k === 'upper' ? 10 : 6;
+    if (this.alive) { this.hp -= 30; this.ragdoll(2); if (this.legCut) this.downT = 99; this.onSever?.(pt.to); if (this.hp <= 0) this.die(); }
+    return piece;
+  }
+  // a piece with no joints of its own (the top of a head, a slab of torso): three points of its own
+  freePiece(meshes, oldW, fromName, capMat, normal) {
+    // where the piece is: the middle of its meshes
+    const box = new THREE.Box3(); for (const m of meshes) { m.geometry.computeBoundingBox(); box.union(m.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(oldW, m.matrix))); }
+    const c = box.getCenter(new V()), size = box.getSize(new V()).length() / 2;
+    const up = new V(0, 1, 0), side = new V().crossVectors(normal, up); if (side.lengthSq() < 1e-4) side.set(1, 0, 0); side.normalize();
+    const mk = (v, tag) => this.sim.point(v.x, v.y, v.z, Math.min(0.06, size * 0.5), 0.5, this, tag);
+    const p0 = mk(c, 'chunk'), p1 = mk(c.clone().addScaledVector(up, 0.05), 'chunk'), p2 = mk(c.clone().addScaledVector(side, 0.05), 'chunk');
+    for (const [a, b] of [[p0, p1], [p1, p2], [p0, p2]]) this.links.push(this.sim.link(a, b, 'rod', 1, null, this));
+    for (const p of [p0, p1, p2]) p.addVel(normal.x * 1.2 + (R() - 0.5) * 0.6, 0.8 + R(), normal.z * 1.2 + (R() - 0.5) * 0.6);
+    const name = 'chunk#' + (++pieceN);
+    const g = new THREE.Group(); g.scale.setScalar(this.s); this.group.add(g);
+    const piece = this.parts[name] = { name, g, from: null, to: null, fromPt: p0, toPt: p1, sideFix: { o: p0, s: p2 }, gone: false, capMat, chunk: true, of: baseOf(fromName) };
+    this.syncPart(piece); g.updateMatrixWorld(true);
+    this.rehome(meshes, oldW, g);
+    return piece;
+  }
+  // through the middle: everything above comes off everything below, and the insides come out
+  halve(point, normal, name) {
+    if (this.split) return false;
+    this.split = 'waist'; this.cause = 'halved';
+    const torso = this.parts.torso, hips = this.parts.hips;
+    torso.g.updateMatrixWorld(true); hips.g.updateMatrixWorld(true);
+    const tW = torso.g.matrixWorld.clone(), hW = hips.g.matrixWorld.clone();
+    // the mesh is cut where the blade went; the body comes apart at the spine
+    const cutT = this.cutMeshes(torso.g, point, normal, new V(0, 0.33, 0), waistMat);   // upper keeps the chest
+    const cutH = this.cutMeshes(hips.g, point, normal, new V(0, -0.05, 0), waistMat);   // lower keeps the legs
+    this.sever('spine', 1.4, true);
+    this.syncPart(torso); this.syncPart(hips);
+    this.rehome(cutT.go, tW, hips.g);   // the bottom of the torso stays on the hips
+    this.rehome(cutH.go, hW, torso.g);  // the top of the hips goes with the chest
+    this.spillOrgans(point, normal);
+    this.entrails(this.p.pelvis, 9); this.entrails(this.p.spine, 7);
+    this.blood.chunk(point, 'meat', 6, 3);
+    this.hp = 0; this.die();
+    return true;
+  }
+  // organs near a cut fall out; one the blade went through is cut in two
+  spillOrgans(point, normal, onlyGroup = null) {
+    for (const m of [...this.organs]) {
+      const org = m.userData.organ; if (onlyGroup && org.group !== onlyGroup) continue;
+      if (!m.parent) continue;
+      m.parent.updateMatrixWorld(true);
+      const c = t1.set(...org.c).applyMatrix4(m.parent.matrixWorld);
+      const dist = Math.abs(t2.subVectors(c, point).dot(normal));
+      if (dist > org.r + 0.07 || org.bone) continue;   // the skeleton stays where it is
+      const host = m.parent, oldW = host.matrixWorld.clone();
+      m.visible = true; m.updateMatrix(); host.remove(m);
+      this.organs.splice(this.organs.indexOf(m), 1);
+      if (dist < org.r * 0.5 && !org.bone) {
+        // the blade went through it
+        const toMesh = mb.copy(oldW).multiply(m.matrix).invert();
+        const lp = t3.copy(point).applyMatrix4(toMesh), ln = t4.copy(normal).transformDirection(toMesh);
+        const { front, back } = sliceGeometry(m.geometry, ln.clone(), ln.dot(lp), true);
+        for (const half of [front, back]) if (half) { const hm = new THREE.Mesh(half, [m.material, organCutMat]); hm.matrix.copy(m.matrix); hm.matrixAutoUpdate = false; this.ownGeos.push(half); const pc = this.freePiece([hm], oldW, 'chunk', organCutMat, normal); pc.organ = org.name; }
+      } else { m.matrixAutoUpdate = false; const pc = this.freePiece([m], oldW, 'chunk', organCutMat, normal); pc.organ = org.name; }
+    }
+    this.blood.spray(point, normal, 25, 2, 1);
+  }
   // Cut at a joint: everything past it comes away as its own piece.
-  sever(joint, force = 1) {
+  sever(joint, force = 1, noCaps = false) {
     if (this.severed.has(joint) || !BELOW[joint]) return false;
-    if (BELOW[joint].some(j => this.severed.has(j) && false)) return false;
     const below = new Set(BELOW[joint]);
     if (below.has('head') && this.headGone) return false;
     this.severed.add(joint);
-    this.loose ??= new Set(); for (const k of BELOW[joint]) this.loose.add(k);
+    for (const k of BELOW[joint]) this.loose.add(k);
     const J = this.p[joint];
-    // a new point for the piece that's coming away
     const J2 = this.sim.point(J.x, J.y, J.z, J.r, 1, this, joint + '*');
     J2.px = J.px; J2.py = J.py; J2.pz = J.pz;
     for (const l of this.links) {
-      const aIn = below.has(l.a.tag), bIn = below.has(l.b.tag);
-      const aJ = l.a === J, bJ = l.b === J;
+      const aIn = below.has(l.a.tag), bIn = below.has(l.b.tag), aJ = l.a === J, bJ = l.b === J;
       if ((aIn && bJ) || (bIn && aJ)) { if (aJ) l.a = J2; else l.b = J2; }
-      else if (aIn !== bIn && !(aJ || bJ)) l.cut = true;
       else if (aIn !== bIn) l.cut = true;
     }
-    // waist: the two halves keep their shape
     this.sim.links = this.sim.links.filter(l => !l.cut); this.links = this.links.filter(l => !l.cut);
-    this.partFrom ??= {};
-    // parts starting at the joint on the far side now hang off the new point
-    for (const n in this.parts) { const pt = this.parts[n]; if (pt.from === joint && below.has(pt.to)) pt.fromPt = J2; if (joint === 'spine' && n === 'torso') pt.fromPt = J2; }
-    this.pieces ??= []; this.pieces.push({ joint, J, J2, below });
-    // raw ends on both sides
-    const r = { lSh: 0.05, rSh: 0.05, lEl: 0.04, rEl: 0.04, lWr: 0.03, rWr: 0.03, lHip: 0.08, rHip: 0.08, lKn: 0.052, rKn: 0.052, lAn: 0.035, rAn: 0.035, neck: 0.05, spine: 0.14 }[joint] * this.s;
-    const capMat = joint === 'spine' ? waistMat : stumpMat;
-    this.capAt(J, joint, false, r, capMat); this.capAt(J2, joint, true, r, capMat);
-    // pump from the stump
+    // which way the piece is turned, from now on: a point of its own beside the cut
+    const first = this.p[BELOW[joint][0]], side = this.sideOf(this.parts[joint === 'spine' ? 'torso' : joint === 'neck' ? 'neck' : Object.keys(this.parts).find(n => this.parts[n].from === joint) ?? 'torso'], new V()).normalize();
+    const sp = this.sim.point(J.x + side.x * 0.06, J.y + side.y * 0.06, J.z + side.z * 0.06, 0.03, 0.5, this, 'side');
+    this.links.push(this.sim.link(sp, J2, 'rod', 1, null, this), this.sim.link(sp, first, 'rod', 1, null, this));
+    for (const n in this.parts) {
+      const pt = this.parts[n];
+      if (pt.from === joint && below.has(pt.to)) pt.fromPt = J2;
+      if (joint === 'spine' && n === 'torso') pt.fromPt = J2;
+      if (joint !== 'spine' && joint !== 'neck' && (below.has(pt.from) || (pt.from === joint && below.has(pt.to)))) pt.sideFix = { o: J2, s: sp };
+    }
+    if (!noCaps) {
+      const r = { lSh: 0.05, rSh: 0.05, lEl: 0.04, rEl: 0.04, lWr: 0.03, rWr: 0.03, lHip: 0.08, rHip: 0.08, lKn: 0.052, rKn: 0.052, lAn: 0.035, rAn: 0.035, neck: 0.05, spine: 0.14 }[joint] * this.s;
+      const capMat = joint === 'spine' ? waistMat : stumpMat;
+      this.capAt(J, joint, false, r, capMat); this.capAt(J2, joint, true, r, capMat);
+    }
     const along = (out) => { const nb = this.neighbour(J, below); return out.subVectors(J, nb).normalize(); };
     this.blood.spurt(J, out => along(out), this.alive ? 8 : 3, joint === 'neck' ? 1.4 : 1);
     this.blood.spray(J, along(t1), 30, 3, 0.7);
     this.blood.pool(this.p.pelvis, 1.4);
-    // the piece flies off a little
     for (const k of below) this.p[k].addVel((R() - 0.5) * 1.5 * force, 1.2 * force, (R() - 0.5) * 1.5 * force);
     J2.addVel((R() - 0.5) * 1.5 * force, 1.2 * force, (R() - 0.5) * 1.5 * force);
     this.bleed += 8;
     if (joint === 'neck' || joint === 'spine') { this.hp = 0; this.die(); }
-    else if (this.alive) { this.ragdoll(2); this.onSever?.(joint); if (joint.endsWith('Hip') || joint.endsWith('Kn')) this.downT = 99; }
+    else if (this.alive) { this.ragdoll(2); this.onSever?.(joint); if (joint.endsWith('Hip') || joint.endsWith('Kn') || joint.endsWith('An')) this.downT = 99; }
     return true;
   }
   neighbour(J, below) { for (const l of this.links) { if (l.a === J && !below.has(l.b.tag) && l.b.tag !== J.tag) return l.b; if (l.b === J && !below.has(l.a.tag) && l.a.tag !== J.tag) return l.a; } return this.p.chest; }
@@ -508,16 +720,19 @@ export class Human {
     const m = new THREE.Mesh(disc, mat); m.scale.setScalar(r); m.frustumCulled = false;
     this.group.add(m); this.caps.push({ m, point, joint, far });
   }
-  // split through the middle: chest, arms and head come off the hips
-  splitWaist() {
-    if (this.split || this.severed.has('spine')) return false;
-    this.split = 'waist'; this.cause = 'halved';
-    this.sever('spine', 1.5);
-    this.entrails(this.p.pelvis, 8); this.entrails(this.p.spine, 6);
-    this.blood.chunk(this.p.spine, 'meat', 6, 3);
+  splitWaist() { const P = this.p; return this.halve(t1.copy(P.spine), new V().subVectors(P.chest, P.pelvis).normalize(), 'torso'); }
+  // off at the neck: with a blade, cut where it went (the bottom of the neck stays on them)
+  decapitate(force = 1, point = null, normal = null) {
+    if (this.headGone || this.severed.has('neck')) return false;
+    if (point) {
+      const neck = this.parts.neck; neck.g.updateMatrixWorld(true); const w = neck.g.matrixWorld.clone();
+      const { go } = this.cutMeshes(neck.g, point, normal, new V(0, 0.14, 0), stumpMat);
+      this.rehome(go, w, this.parts.torso.g);
+      this.sever('neck', force, true);
+    } else this.sever('neck', force);
+    this.cause ??= 'decapitated';
     return true;
   }
-  decapitate(force = 1) { if (this.headGone || this.severed.has('neck')) return false; this.sever('neck', force); this.cause ??= 'decapitated'; return true; }
   // the skull gives way
   crushHead() {
     if (this.headGone) return false;
@@ -532,29 +747,22 @@ export class Human {
     this.hp = 0; this.die();
     return true;
   }
-  // an axe down through the skull: the head opens like a book
-  cleaveHead() {
+  // an axe down through the skull: the head comes apart where it went in
+  cleaveHead(point = null, normal = null) {
     if (this.headGone || this.cleaved) return false;
-    this.cleaved = true;
-    const g = this.parts.head.g, head = g.children[0];
-    head.visible = false;
-    for (const sx of [-1, 1]) {
-      const half = new THREE.Mesh(new THREE.SphereGeometry(0.115, 24, 18, sx < 0 ? Math.PI : 0, Math.PI), this.headMat); half.scale.set(0.92, 1.06, 1);
-      const pivot = new THREE.Group(); pivot.position.y = -0.09; pivot.rotation.z = sx * 0.35; half.position.y = 0.09; pivot.add(half);
-      const cap = new THREE.Mesh(disc, brainMat); cap.scale.set(0.1, 0.1, 1); cap.rotation.y = sx * Math.PI / 2; cap.position.set(-sx * 0.001, 0.09, 0); pivot.add(cap);
-      g.add(pivot);
-    }
-    for (const c of g.children) if (c.type === 'Mesh' && c !== head && c.geometry.type !== 'SphereGeometry') c.visible = c.geometry.type === 'CapsuleGeometry';
-    this.blood.spray(this.p.head, UP, 40, 3, 1); this.blood.chunk(this.p.head, 'brain', 4, 1.5);
-    this.blood.spurt(this.p.head, out => out.set(0, 1, 0), 5, 1);
-    this.hp = 0; this.cause = 'head split open'; this.die();
-    return true;
+    const P = this.p;
+    if (!normal) { normal = new V().subVectors(P.rSh, P.lSh).normalize(); point = t1.copy(P.head); }
+    return this.slicePart('head', point, normal);
   }
+
   // belly opened: the gut spills out and hangs
   disembowel() {
     if (this.gutted || this.split) return false;
     this.gutted = true;
     this.entrails(this.p.spine, 10, true);
+    // the belly is open: the coils of gut come out with it
+    const P = this.p, fwd = new V().subVectors(P.lSh, P.rSh).cross(t2.subVectors(P.neck, P.pelvis)).normalize().multiplyScalar(-1);
+    this.spillOrgans(t1.copy(P.pelvis).lerp(P.spine, 0.6).addScaledVector(fwd, 0.11), fwd, 'hips');
     this.blood.spray(this.p.spine, t1.subVectors(this.p.spine, this.p.chest).add(t2.set(0, 0.5, 0)).normalize(), 30, 2, 0.8);
     this.soak(0.5, 0.25, 50); this.soak(0.5, 0.45, 40);
     this.bleed += 10;
@@ -581,8 +789,12 @@ export class Human {
     const P = this.p, fwd = t1.subVectors(P.lSh, P.rSh).cross(t2.subVectors(P.neck, P.pelvis)).normalize().multiplyScalar(-1);
     const at = t2.copy(P.chest).lerp(P.neck, 0.2).addScaledVector(fwd, 0.14);
     const heart = this.sim.point(at.x, at.y, at.z, 0.045, 0.3, this, 'heart');
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 10), heartMat); m.scale.set(1, 1.25, 0.9); m.frustumCulled = false; this.group.add(m);
-    this.extra.push({ p: heart, m });
+    const vessel = this.sim.point(at.x, at.y + 0.05, at.z, 0.02, 0.1, this, 'heart');
+    this.sim.link(heart, vessel, 'rod', 1, null, this);
+    // the real one, out of their chest: a fist-sized muscle with its vessels torn off
+    const hm = this.organs.find(m => m.userData.organ.name === 'heart'); if (hm) { hm.parent?.remove(hm); this.organs.splice(this.organs.indexOf(hm), 1); }
+    const m = new THREE.Mesh(heartGeo(), [organMat(ORGANS[0]), organCutMat]); m.frustumCulled = false; this.group.add(m);
+    this.extra.push({ p: heart, q: vessel, m });
     // the hole it left
     this.wound('torso', at, fwd, 'blunt'); this.wound('torso', at, fwd, 'stab');
     this.soak(0.5, 0.3, 60);
@@ -617,6 +829,7 @@ export class Human {
     this.onDeath?.(this);
   }
 
+
   // ---------------------------------------------------------------- draw
   frameOf(a, b, side, out) {   // y along a->b, z toward 'side' projected
     const y = t1.subVectors(b, a).normalize();
@@ -625,30 +838,32 @@ export class Human {
     z.normalize(); const x = t3.crossVectors(y, z);
     return out.makeBasis(x, y, z);
   }
-  sync() {
+  // which way a part's front faces
+  sideOf(pt, out) {
+    if (pt.sideFix) return out.set(pt.sideFix.s.x - pt.sideFix.o.x, pt.sideFix.s.y - pt.sideFix.o.y, pt.sideFix.s.z - pt.sideFix.o.z);
+    const P = this.p, k = kindOf(pt.name);
+    if (k === 'foot') return out.set(0, 1, 0);
+    if (k === 'hips' || k === 'thigh' || k === 'shin') return out.subVectors(P.rHip, P.lHip).cross(t4.subVectors(P.spine, P.pelvis)).normalize();
+    out.subVectors(P.rSh, P.lSh).cross(t4.subVectors(P.neck, P.spine)).normalize();
+    if (!isFinite(out.x)) out.set(0, 0, 1);
+    return out;
+  }
+  syncPart(pt) {
     const P = this.p;
-    // body forward, from the shoulders and the spine
-    const fwd = t4.subVectors(P.rSh, P.lSh).cross(t1.subVectors(P.neck, P.spine)).normalize();
-    if (!isFinite(fwd.x)) fwd.set(0, 0, 1);
-    const F = fwd.clone(), hipFwd = new V().subVectors(P.rHip, P.lHip).cross(t1.subVectors(P.spine, P.pelvis)).normalize();
-    for (const n in this.parts) {
-      const pt = this.parts[n]; if (pt.gone) continue;
-      const a = pt.fromPt ?? P[pt.from], b = P[pt.to];
-      let side = F;
-      if (n === 'hips' || n.includes('Thigh') || n.includes('Shin')) side = hipFwd;
-      if (n.includes('Foot')) { side = t1.set(0, 1, 0); }
-      if (n === 'head') {
-        // the head's own frame: up from the neck, facing where the face points
-        const up = new V().subVectors(P.head, this.parts.neck.fromPt ?? P.neck).normalize();
-        pt.g.quaternion.setFromRotationMatrix(this.frameOf(new V(), up, F, mb));
-        pt.g.position.set(P.head.x, P.head.y, P.head.z);
-        continue;
-      }
-      if (n === 'neck') { pt.g.quaternion.setFromRotationMatrix(this.frameOf(a, b, F, mb)); pt.g.position.set(a.x, a.y, a.z); continue; }
-      pt.g.quaternion.setFromRotationMatrix(this.frameOf(a, b, side, mb));
-      pt.g.position.set(a.x, a.y, a.z);
-      if (n === 'hips') { pt.g.position.set(P.pelvis.x, P.pelvis.y, P.pelvis.z); }
+    if (pt.name === 'head') {
+      const side = this.sideOf(pt, new V());
+      const up = new V().subVectors(P.head, this.parts.neck.fromPt ?? P.neck).normalize();
+      pt.g.quaternion.setFromRotationMatrix(this.frameOf(new V(), up, side, mb));
+      pt.g.position.set(P.head.x, P.head.y, P.head.z);
+      return;
     }
+    const [a, b] = this.ends(pt);
+    const side = this.sideOf(pt, new V());
+    pt.g.quaternion.setFromRotationMatrix(this.frameOf(a, b, side, mb));
+    pt.g.position.set(a.x, a.y, a.z);
+  }
+  sync() {
+    for (const n in this.parts) { const pt = this.parts[n]; if (!pt.gone) this.syncPart(pt); }
     for (const c of this.caps) {
       const nb = c.far ? this.capNeighbour(c) : this.neighbour(c.point, BELOW[c.joint] ? new Set(BELOW[c.joint]) : new Set());
       if (!nb) continue;
@@ -656,12 +871,13 @@ export class Human {
       c.m.position.set(c.point.x, c.point.y, c.point.z); c.m.quaternion.setFromUnitVectors(t2.set(0, 0, 1), t1);
     }
     for (const g of this.guts) { g.m.position.set((g.a.x + g.b.x) / 2, (g.a.y + g.b.y) / 2, (g.a.z + g.b.z) / 2); g.m.quaternion.setFromUnitVectors(UP, t1.set(g.b.x - g.a.x, g.b.y - g.a.y, g.b.z - g.a.z).normalize()); }
-    for (const e of this.extra) e.m.position.set(e.p.x, e.p.y, e.p.z);
+    for (const e of this.extra) { e.m.position.set(e.p.x, e.p.y, e.p.z); if (e.q) e.m.quaternion.setFromUnitVectors(UP, t1.set(e.q.x - e.p.x, e.q.y - e.p.y, e.q.z - e.p.z).normalize()); }
   }
   capNeighbour(c) { for (const l of this.links) { if (l.a === c.point) return l.b; if (l.b === c.point) return l.a; } return null; }
   dispose() {
     this.scene.remove(this.group); this.sim.remove(this); this.gone = true;
     for (const k in this.p) this.p[k].dead = true;
     this.shirtT.dispose();
+    for (const g of this.ownGeos) g.dispose();
   }
 }

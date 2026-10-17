@@ -4,10 +4,10 @@
 // limbs, torsos and heads come apart along the line of the cut, capped with
 // flesh and bone, and what's inside falls out.
 import * as THREE from '../vendor/three.module.js';
-import { segDist } from './sim.js?v=11';
-import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=11';
-import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=11';
-import { sliceGeometry } from './slice.js?v=11';
+import { segDist } from './sim.js?v=12';
+import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=12';
+import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=12';
+import { sliceGeometry } from './slice.js?v=12';
 
 const V = THREE.Vector3, R = Math.random;
 const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), mb = new THREE.Matrix4(), UP = new V(0, 1, 0);

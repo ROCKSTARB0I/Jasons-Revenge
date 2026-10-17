@@ -44,18 +44,26 @@ export function sliceGeometry(g, n, d, cap = true) {
 }
 function push(o, kind, vs) {
   let t = o.get(kind); if (!t) o.set(kind, t = { p: [], n: [], u: [] });
-  for (const v of vs) { t.p.push(...v.p); t.n.push(...v.n); t.u.push(...v.u); }
+  for (const v of vs) { t.p.push(v.p[0], v.p[1], v.p[2]); t.n.push(v.n[0], v.n[1], v.n[2]); t.u.push(v.u[0], v.u[1]); }
 }
 function build(o) {
   if (!o.size) return null;
   const kinds = [...new Set([0, 1, ...o.keys()])].sort((a, b) => a - b);
-  const p = [], nn = [], u = [];
+  // copied into typed arrays one block at a time: spreading a big body's worth of numbers
+  // into push() overflows the call stack (and the Quest's stack is smaller still)
+  let nv = 0; for (const t of o.values()) nv += t.p.length / 3;
+  if (!nv) return null;
+  const p = new Float32Array(nv * 3), nn = new Float32Array(nv * 3), u = new Float32Array(nv * 2);
   const g = new THREE.BufferGeometry();
-  for (const k of kinds) { const t = o.get(k); const start = p.length / 3; if (t) { p.push(...t.p); nn.push(...t.n); u.push(...t.u); } g.addGroup(start, p.length / 3 - start, k); }
-  if (!p.length) return null;
-  g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nn, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
+  let at = 0;
+  for (const k of kinds) {
+    const t = o.get(k), start = at;
+    if (t) { p.set(t.p, at * 3); nn.set(t.n, at * 3); u.set(t.u, at * 2); at += t.p.length / 3; }
+    g.addGroup(start, at - start, k);
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nn, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(u, 2));
   g.computeBoundingSphere();
   return g;
 }

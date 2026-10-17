@@ -1,14 +1,14 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=11';
-import { Human } from './body.js?v=11';
-import { Blood } from './blood.js?v=11';
-import { sfx } from './sfx.js?v=11';
-import { score } from './score.js?v=11';
-import { Rain } from './rain.js?v=11';
-import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=11';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=11';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=11';
+import { Sim, STEP, segDist } from './sim.js?v=12';
+import { Human } from './body.js?v=12';
+import { Blood } from './blood.js?v=12';
+import { sfx } from './sfx.js?v=12';
+import { score } from './score.js?v=12';
+import { Rain } from './rain.js?v=12';
+import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=12';
+import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=12';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=12';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -1557,7 +1557,16 @@ addEventListener('resize', resize); resize();
 let last = 0, acc = 0;
 const hurtMesh = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 12), new THREE.MeshBasicMaterial({ color: 0x5a0000, transparent: true, opacity: 0, side: THREE.BackSide, depthTest: false, fog: false }));
 hurtMesh.renderOrder = 1001; camera.add(hurtMesh);
+// one bad frame (an error anywhere) must never stop the loop: in VR that freezes the whole view
+let frameErrors = 0;
 function frame(time) {
+  try { step(time); }
+  catch (e) {
+    if (frameErrors++ < 5) console.error('frame error', e);
+    try { renderer.render(scene, camera); } catch { /* nothing more to do */ }
+  }
+}
+function step(time) {
   let dt = Math.min(0.05, (time - last) / 1000 || 0); last = time;
   if (stopT > 0) { stopT -= dt; dt *= 0.15; }   // the jolt of a blow landing
   if (!started) {

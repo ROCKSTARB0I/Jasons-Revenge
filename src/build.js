@@ -181,6 +181,8 @@ export function kitMaterials() {
     flag: L({ side: THREE.DoubleSide, map: canvasTex(96, 60, (g, w, h) => { for (let i = 0; i < 13; i++) { g.fillStyle = i % 2 ? '#e8e0d0' : '#a02028'; g.fillRect(0, i * h / 13, w, h / 13 + 1); } g.fillStyle = '#1e2a5a'; g.fillRect(0, 0, w * 0.4, h * 7 / 13); g.fillStyle = '#e8e0d0'; for (let y = 3; y < h * 7 / 13; y += 5) for (let x = 3; x < w * 0.4; x += 6) g.fillRect(x, y, 1.5, 1.5); }) }),
     porchSign: text => L({ map: canvasTex(360, 70, (g, w, h) => { g.fillStyle = '#2a2a24'; g.fillRect(0, 0, w, h); g.strokeStyle = '#d8d0b8'; g.lineWidth = 3; g.strokeRect(5, 5, w - 10, h - 10); g.fillStyle = '#e8e0c8'; g.font = 'bold 34px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, w / 2, h / 2 + 2); }) }),
   };
+  // the grain of the wood, the logs, the siding and the shingles catch the light
+  for (const k of ['plank', 'plankDark', 'log', 'logInt', 'boardBatten', 'barnWood', 'brownStain', 'sage', 'sidingWhite', 'sidingRed', 'sidingGreen', 'sidingBlue', 'brownShingle', 'panel', 'knotty', 'floor', 'floorDark', 'roof', 'stone', 'brick', 'junk', 'crate', 'hay']) if (M[k]?.map) { M[k].bumpMap = M[k].map; M[k].bumpScale = k === 'stone' || k === 'brick' || k === 'log' || k === 'logInt' ? 2.2 : 1.1; }
   return M;
 }
 
@@ -204,7 +206,7 @@ export function makeKit(M, ctx) {
       return ctx.addSolid(Math.min(a.x, b.x), y0, Math.min(a.z, b.z), Math.max(a.x, b.x), y1, Math.max(a.z, b.z), opaque);
     };
     const box = (mat, w, h, d, x, y, z, parent = g) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); parent.add(m); return m; };
-    const B = { def, g, live, toW, solid, box, W, D, H, FH, yaw, rooms: [], inside: null, door: null };
+    const B = { def, g, live, toW, solid, box, W, D, H, FH, yaw, rooms: [], inside: null, door: null, doorZones: [] };
     const ext = M[def.ext ?? 'plank'], int = M[def.int ?? 'panel'];
 
     // ---- floor, the platform it stands on, the ceiling
@@ -254,6 +256,7 @@ export function makeKit(M, ctx) {
           box(trim, alongX ? h.w : T + 0.02, 0.025, alongX ? T + 0.02 : h.w, mx, FH + (WIN_Y0 + WIN_Y1) / 2, mz);
           box(trim, alongX ? h.w + 0.16 : 0.12, 0.04, alongX ? 0.12 : h.w + 0.16, mx + (alongX ? 0 : (outward ?? 0) * 0.07), FH + WIN_Y0 - 0.04, mz + (alongX ? (outward ?? 0) * 0.07 : 0));
         } else {
+          { const [zx, zz] = P(h.at); B.doorZones.push({ x: zx, z: zz, hx: alongX ? h.w / 2 + 0.2 : 1.05, hz: alongX ? 1.05 : h.w / 2 + 0.2 }); }
           const top = h.kind === 'arch' ? Math.min(H, 2.3) : DOOR_H;
           piece(h.t0, h.t1, top, H);
           if (h.kind === 'door' && h.panel !== false) door(P, h, alongX, outward);
@@ -414,8 +417,14 @@ export function makeKit(M, ctx) {
 
   // ---------------------------------------------------------------- furniture
   // each: (building, [x, z, quarter turns, ...options]); front of a thing faces +z when turned 0
+  const blocksDoor = (B, x, z, rot, w, d) => {
+    const turned = (rot ?? 0) % 2 === 1, hw = (turned ? d : w) / 2, hd = (turned ? w : d) / 2;
+    return B.doorZones.some(zn => Math.abs(x - zn.x) < hw + zn.hx && Math.abs(z - zn.z) < hd + zn.hz);
+  };
   const piece = (B, x, z, rot, w, d, build, opts = {}) => {
-    const fg = new THREE.Group(); fg.position.set(x, B.FH, z); fg.rotation.y = (rot ?? 0) * Math.PI / 2; B.g.add(fg);
+    const fg = new THREE.Group(); fg.position.set(x, B.FH, z); fg.rotation.y = (rot ?? 0) * Math.PI / 2;
+    if (opts.solid !== false && blocksDoor(B, x, z, rot, w, d)) { fg.userData.skipped = true; return fg; }   // never in the way of a door
+    B.g.add(fg);
     build(fg, (mat, bw, bh, bd, bx, by, bz, parent = fg) => { const m = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), mat); m.position.set(bx, by, bz); parent.add(m); return m; });
     if (opts.solid !== false) {
       const turned = (rot ?? 0) % 2 === 1, hw = (turned ? d : w) / 2, hd = (turned ? w : d) / 2;
@@ -423,11 +432,13 @@ export function makeKit(M, ctx) {
     }
     return fg;
   };
-  const surface = (B, x, z, y) => { const p = B.toW(x, z); ctx.surfaces?.push({ x: p.x, y: B.FH + y, z: p.z, building: B }); };
+  const surface = (B, x, z, y) => {
+    if (B.doorZones.some(zn => Math.abs(x - zn.x) < zn.hx && Math.abs(z - zn.z) < zn.hz)) return; const p = B.toW(x, z); ctx.surfaces?.push({ x: p.x, y: B.FH + y, z: p.z, building: B }); };
   // moving parts (wardrobe doors, stall doors, curtains) go in a twin of the furniture's group that isn't merged away
   const liveOf = (B, fg) => { if (!fg.userData.lg) { const lg = new THREE.Group(); lg.position.copy(fg.position); lg.rotation.copy(fg.rotation); B.live.add(lg); fg.userData.lg = lg; } return fg.userData.lg; };
   const local = (B, fg, lx, lz) => { const v = new THREE.Vector3(lx, 0, lz).applyAxisAngle(new THREE.Vector3(0, 1, 0), fg.rotation.y); return B.toW(fg.position.x + v.x, fg.position.z + v.z); };
-  const hide = (B, fg, kind, lx = 0, lz = 0.6, extra = {}) => { const p = local(B, fg, lx, lz), c = local(B, fg, 0, 0); ctx.hidingSpots.push({ x: c.x, z: c.z, out: p, yaw: B.yaw + fg.rotation.y, kind, building: B, y: B.FH, ...extra }); };
+  const hide = (B, fg, kind, lx = 0, lz = 0.6, extra = {}) => {
+    if (fg.userData.skipped) return; const p = local(B, fg, lx, lz), c = local(B, fg, 0, 0); ctx.hidingSpots.push({ x: c.x, z: c.z, out: p, yaw: B.yaw + fg.rotation.y, kind, building: B, y: B.FH, ...extra }); };
   const FURN = {
     bunk: (B, [x, z, rot]) => {
       const iron = B.def.ironBunks, frame = iron ? M.metal : M.plankDark;
@@ -437,7 +448,7 @@ export function makeKit(M, ctx) {
         if (iron) for (const pz of [-0.96, 0.96]) for (const y of [0.75, 1.75]) b(frame, 0.9, 0.03, 0.03, 0, y, pz);
         else for (let i = 0; i < 4; i++) b(M.plankDark, 0.04, 0.04, 0.4, 0.46, 0.65 + i * 0.22, 0.75);   // ladder rungs
       }, { h: 0.65 });
-      const turned = (rot ?? 0) % 2 === 1; ctx.bunk(B.def.x, B.def.z, B.yaw, x, z, turned ? 2 : 0.92, turned ? 0.92 : 2, B.FH + 0.62);
+      const turned = (rot ?? 0) % 2 === 1; if (!fg.userData.skipped) ctx.bunk(B.def.x, B.def.z, B.yaw, x, z, turned ? 2 : 0.92, turned ? 0.92 : 2, B.FH + 0.62);
       bed(B, fg);
       hide(B, fg, 'underbed', 0, 0.9, { low: true });
     },
@@ -449,7 +460,7 @@ export function makeKit(M, ctx) {
         for (const px of dbl ? [-0.33, 0.33] : [0]) b(M.pillow, 0.5, 0.11, 0.34, px, 0.6, -0.75);
         b(M.plankDark, w, 0.9, 0.08, 0, 0.45, -1.0);   // headboard
       }, { h: 0.6 });
-      ctx.bunk(B.def.x, B.def.z, B.yaw, x, z, (rot ?? 0) % 2 ? 2 : w, (rot ?? 0) % 2 ? w : 2, B.FH + 0.58);
+      if (!fg.userData.skipped) ctx.bunk(B.def.x, B.def.z, B.yaw, x, z, (rot ?? 0) % 2 ? 2 : w, (rot ?? 0) % 2 ? w : 2, B.FH + 0.58);
       bed(B, fg);
       hide(B, fg, 'underbed', 0, 0.9, { low: true });
     },
@@ -476,9 +487,9 @@ export function makeKit(M, ctx) {
       hide(B, fg, 'locker', 0, 0.7);
     },
     dresser: (B, [x, z, rot]) => (surface(B, x, z, 0.87), piece)(B, x, z, rot, 1.0, 0.5, (fg, b) => { b(M.plankDark, 1.0, 0.85, 0.5, 0, 0.425, 0); for (let i = 0; i < 3; i++) { b(M.panel, 0.9, 0.22, 0.02, 0, 0.17 + i * 0.27, 0.255); b(M.chrome, 0.1, 0.02, 0.02, 0, 0.2 + i * 0.27, 0.27); } b(M.porcelain, 0.12, 0.2, 0.12, 0.3, 0.95, 0); }, { h: 0.9 }),
-    nightstand: (B, [x, z, rot, lit = true]) => { surface(B, x, z, 0.56); piece(B, x, z, rot, 0.45, 0.4, (fg, b) => { b(M.plankDark, 0.45, 0.55, 0.4, 0, 0.275, 0); b(M.panel, 0.38, 0.15, 0.02, 0, 0.4, 0.205); }, { h: 0.6 }); if (lit) addLamp(B, [x, B.FH + 0.97, z], 'table', { power: 1.8, range: 4.5 }); },
+    nightstand: (B, [x, z, rot, lit = true]) => { surface(B, x, z, 0.56); if (!piece(B, x, z, rot, 0.45, 0.4, (fg, b) => { b(M.plankDark, 0.45, 0.55, 0.4, 0, 0.275, 0); b(M.panel, 0.38, 0.15, 0.02, 0, 0.4, 0.205); }, { h: 0.6 }).userData.skipped && lit) addLamp(B, [x, B.FH + 0.97, z], 'table', { power: 1.8, range: 4.5 }); },
     table: (B, [x, z, rot, w = 1.4, d = 0.85, chairs = 4]) => { surface(B, x, z, 0.79);
-      piece(B, x, z, rot, w, d, (fg, b) => { b(M.plankDark, w, 0.05, d, 0, 0.76, 0); for (const sx of [-1, 1]) for (const sz of [-1, 1]) b(M.plankDark, 0.06, 0.74, 0.06, sx * (w / 2 - 0.07), 0.37, sz * (d / 2 - 0.07)); }, { h: 0.78 });
+      if (piece(B, x, z, rot, w, d, (fg, b) => { b(M.plankDark, w, 0.05, d, 0, 0.76, 0); for (const sx of [-1, 1]) for (const sz of [-1, 1]) b(M.plankDark, 0.06, 0.74, 0.06, sx * (w / 2 - 0.07), 0.37, sz * (d / 2 - 0.07)); }, { h: 0.78 }).userData.skipped) return;
       const seats = [[0, d / 2 + 0.38, 2], [0, -d / 2 - 0.38, 0], [-w / 2 - 0.35, 0, 1], [w / 2 + 0.35, 0, 3]].slice(0, chairs);
       for (const [cx, cz, cr] of seats) { const v = new THREE.Vector3(cx, 0, cz).applyAxisAngle(new THREE.Vector3(0, 1, 0), (rot ?? 0) * Math.PI / 2); FURN.chair(B, [x + v.x, z + v.z, cr + (rot ?? 0)]); }
       const sp = B.toW(x, z + d / 2 + 0.7); ctx.spots.push({ x: sp.x, z: sp.z, kind: 'table', face: B.yaw + (rot ?? 0) * Math.PI / 2 + Math.PI, building: B });
@@ -514,7 +525,7 @@ export function makeKit(M, ctx) {
     },
     bathtub: (B, [x, z, rot]) => piece(B, x, z, rot, 0.8, 1.7, (fg, b) => { b(M.porcelain, 0.8, 0.55, 1.7, 0, 0.275, 0); b(M.black, 0.66, 0.02, 1.55, 0, 0.56, 0); }, { h: 0.55 }),
     shelf: (B, [x, z, rot, w = 1.0]) => piece(B, x, z, rot, w, 0.35, (fg, b) => { for (const sx of [-w / 2, w / 2]) b(M.plankDark, 0.04, 1.9, 0.35, sx, 0.95, 0); for (let i = 0; i < 5; i++) { b(M.plankDark, w, 0.03, 0.35, 0, 0.1 + i * 0.42, 0); for (let k = 0; k < Math.floor(w / 0.08); k++) if (R() < 0.75 && i > 0) b(M[['fabricRed', 'fabricBlue', 'fabricGreen', 'fabricMustard', 'fabricBrown'][R() * 5 | 0]], 0.05, 0.2 + R() * 0.1, 0.24, -w / 2 + 0.06 + k * 0.08, 0.1 + i * 0.42 + 0.14, 0); } b(M.plankDark, w, 1.9, 0.02, 0, 0.95, -0.17); }, { h: 1.9, opaque: true }),
-    desk: (B, [x, z, rot, lit = true]) => { surface(B, x, z, 0.78); piece(B, x, z, rot, 1.2, 0.65, (fg, b) => { b(M.plankDark, 1.2, 0.05, 0.65, 0, 0.75, 0); b(M.plankDark, 0.45, 0.72, 0.6, -0.36, 0.37, 0); b(M.plankDark, 0.04, 0.72, 0.6, 0.57, 0.37, 0); for (let i = 0; i < 3; i++) b(M.sheet, 0.21, 0.005, 0.28, (R() - 0.5) * 0.5, 0.78, (R() - 0.5) * 0.3); }, { h: 0.78 }); FURN.chair(B, [x, z + 0.55, 2 + (rot ?? 0)]); if (lit) addLamp(B, [x + 0.4, B.FH + 1.18, z - 0.15], 'table', { power: 1.8, range: 4.5 }); },
+    desk: (B, [x, z, rot, lit = true]) => { surface(B, x, z, 0.78); if (piece(B, x, z, rot, 1.2, 0.65, (fg, b) => { b(M.plankDark, 1.2, 0.05, 0.65, 0, 0.75, 0); b(M.plankDark, 0.45, 0.72, 0.6, -0.36, 0.37, 0); b(M.plankDark, 0.04, 0.72, 0.6, 0.57, 0.37, 0); for (let i = 0; i < 3; i++) b(M.sheet, 0.21, 0.005, 0.28, (R() - 0.5) * 0.5, 0.78, (R() - 0.5) * 0.3); }, { h: 0.78 }).userData.skipped) return; FURN.chair(B, [x, z + 0.55, 2 + (rot ?? 0)]); if (lit) addLamp(B, [x + 0.4, B.FH + 1.18, z - 0.15], 'table', { power: 1.8, range: 4.5 }); },
     rug: (B, [x, z, rot, w = 2.4, d = 1.6]) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), M.rug[R() * 3 | 0]); m.rotation.x = -Math.PI / 2; m.rotation.z = (rot ?? 0) * Math.PI / 2; m.position.set(x, B.FH + 0.008, z); B.g.add(m); },
     picture: (B, [x, y, z, rot, big]) => { const s = big ? 1.6 : 1; const fr = new THREE.Mesh(new THREE.BoxGeometry(0.62 * s, 0.48 * s, 0.03), M.frame); fr.position.set(x, B.FH + y, z); fr.rotation.y = (rot ?? 0) * Math.PI / 2; B.g.add(fr); const pc = new THREE.Mesh(new THREE.PlaneGeometry(0.54 * s, 0.4 * s), M.pictures[R() * 4 | 0]); pc.position.set(0, 0, 0.017); fr.add(pc); },
     tv: (B, [x, z, rot]) => piece(B, x, z, rot, 0.8, 0.5, (fg, b) => { b(M.plankDark, 0.8, 0.55, 0.5, 0, 0.275, 0); b(M.plankDark, 0.62, 0.48, 0.42, -0.04, 0.8, 0); b(M.black, 0.42, 0.34, 0.01, -0.08, 0.82, 0.215); b(M.steel, 0.1, 0.25, 0.01, 0.22, 0.82, 0.215); }, { h: 1.05 }),
@@ -535,6 +546,7 @@ export function makeKit(M, ctx) {
     tools: (B, [x, z, rot]) => { surface(B, x, z, 0.95); const fg = piece(B, x, z, rot, 4.0, 0.7, (fg, b) => { b(M.plankDark, 3.8, 0.08, 0.7, 0, 0.9, 0); for (const sx of [-1.8, 1.8]) for (const sz of [-0.28, 0.28]) b(M.plankDark, 0.08, 0.9, 0.08, sx, 0.45, sz); b(M.plankDark, 3.7, 0.05, 0.6, 0, 0.25, 0); b(M.metal, 0.22, 0.12, 0.16, 1.4, 1.0, 0.2); }, { h: 0.95 }); ctx.toolWall = { B, fg, x, z, rot: rot ?? 0 }; },
   };
   function bed(B, fg) {
+    if (fg.userData.skipped) return;
     const c = local(B, fg, 0, 0), head = local(B, fg, 0, -0.9), side = local(B, fg, 0.85, 0);
     ctx.beds.push({ x: c.x, z: c.z, yaw: Math.atan2(head.x - c.x, head.z - c.z), side: { x: side.x, z: side.z }, taken: null });
   }

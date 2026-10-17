@@ -2,8 +2,8 @@
 // buildings (from the kit in build.js), the woods, the fence, and a walk grid the
 // counselors find their way round with.
 import * as THREE from '../vendor/three.module.js';
-import { makeKit, kitMaterials } from './build.js?v=16';
-import { areaById } from './areas.js?v=16';
+import { makeKit, kitMaterials } from './build.js?v=17';
+import { areaById } from './areas.js?v=17';
 
 export const BOUND = 58;                 // the woods close in past this
 let SHORE = x => -30 + Math.sin(x * 0.07) * 3 + Math.sin(x * 0.19 + 1) * 1.2;
@@ -82,17 +82,19 @@ const srand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
 // ---------------------------------------------------------------- textures
 function grassTex() {
-  return canvasTex(512, 512, (g, w, h) => {
-    g.fillStyle = '#2c3a1f'; g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 9000; i++) {
-      const c = 30 + Math.random() * 40;
-      g.fillStyle = `rgba(${c * 0.8 | 0},${c * 1.15 | 0},${c * 0.55 | 0},${0.25 + Math.random() * 0.4})`;
-      g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 3 + Math.random() * 6);
-    }
-    for (let i = 0; i < 420; i++) {   // dead leaves, pine needles, bare earth
-      g.fillStyle = `rgba(${70 + Math.random() * 50 | 0},${45 + Math.random() * 30 | 0},${22},${0.3 + Math.random() * 0.25})`;
-      g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, 2 + Math.random() * 6, 1 + Math.random() * 3, Math.random() * 3, 0, 7); g.fill();
-    }
+  return canvasTex(1024, 1024, (g, w, h) => {
+    g.fillStyle = '#2a2a18'; g.fillRect(0, 0, w, h);
+    // patches: moss, bare soil, needle litter
+    for (let i = 0; i < 120; i++) { const x = Math.random() * w, y = Math.random() * h, r = 30 + Math.random() * 110, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, ['rgba(52,64,30,0.55)', 'rgba(64,48,30,0.5)', 'rgba(70,56,34,0.45)', 'rgba(40,52,28,0.5)'][i % 4]); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+    // grass blades
+    for (let i = 0; i < 26000; i++) { const c = 28 + Math.random() * 46, x = Math.random() * w, y = Math.random() * h; g.strokeStyle = `rgba(${c * 0.78 | 0},${c * 1.12 | 0},${c * 0.5 | 0},${0.3 + Math.random() * 0.45})`; g.lineWidth = 1; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 3, y - 3 - Math.random() * 7); g.stroke(); }
+    // fallen pine needles
+    for (let i = 0; i < 9000; i++) { const x = Math.random() * w, y = Math.random() * h, a = Math.random() * 6.3, l = 3 + Math.random() * 6; g.strokeStyle = `rgba(${90 + Math.random() * 40 | 0},${62 + Math.random() * 25 | 0},${34},${0.35 + Math.random() * 0.4})`; g.lineWidth = 0.8; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+    // dead leaves
+    for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(${80 + Math.random() * 60 | 0},${50 + Math.random() * 30 | 0},${20 + Math.random() * 15 | 0},${0.45 + Math.random() * 0.35})`; g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, 2 + Math.random() * 5, 1 + Math.random() * 2.5, Math.random() * 3, 0, 7); g.fill(); }
+    // little stones and twigs
+    for (let i = 0; i < 300; i++) { const c = 70 + Math.random() * 40 | 0; g.fillStyle = `rgba(${c},${c},${c - 6},0.7)`; g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, 1 + Math.random() * 3, 1 + Math.random() * 2, Math.random() * 3, 0, 7); g.fill(); }
+    for (let i = 0; i < 160; i++) { g.strokeStyle = 'rgba(40,28,16,0.7)'; g.lineWidth = 1.2; const x = Math.random() * w, y = Math.random() * h, a = Math.random() * 6.3, l = 8 + Math.random() * 20; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
   }, [1, 1]);
 }
 function woodTex(base = [92, 64, 40], planks = true) {
@@ -249,6 +251,16 @@ export function buildCamp(scene, world, areaId) {
   WINDOW_MAT = KM.windowLit;
   const inFootprint = (x, z, pad = 0) => footprints.some(f => x > f.x0 - pad && x < f.x1 + pad && z > f.z0 - pad && z < f.z1 + pad);
 
+  // ---- sky: a dome that's dark overhead and greys toward the tree line, and thin cloud
+  {
+    const dome = new THREE.SphereGeometry(470, 32, 16), col = new Float32Array(dome.attributes.position.count * 3);
+    for (let i = 0; i < dome.attributes.position.count; i++) { const y = dome.attributes.position.getY(i) / 470, k = Math.pow(Math.max(0, 1 - Math.max(0, y) * 1.6), 2.2); col[i * 3] = 0.024 + k * 0.1; col[i * 3 + 1] = 0.035 + k * 0.12; col[i * 3 + 2] = 0.06 + k * 0.16; }
+    dome.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    scene.add(new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })));
+  }
+  const cloudTex = canvasTex(512, 512, (g, w, h) => { for (let i = 0; i < 70; i++) { const x = Math.random() * w, y = Math.random() * h, r = 30 + Math.random() * 90, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(150,160,180,0.16)'); gr.addColorStop(1, 'rgba(150,160,180,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); } }, [2, 2]);
+  const clouds = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, depthWrite: false, fog: false }));
+  clouds.rotation.x = Math.PI / 2; clouds.position.y = 140; scene.add(clouds);
   // ---- sky: stars, a big moon
   const stars = new THREE.BufferGeometry(), sp = [];
   for (let i = 0; i < 1600; i++) { const th = Math.random() * Math.PI * 2, ph = Math.random() * Math.PI * 0.45, r = 400; sp.push(Math.cos(th) * Math.sin(ph) * r, Math.cos(ph) * r, Math.sin(th) * Math.sin(ph) * r); }
@@ -289,8 +301,8 @@ export function buildCamp(scene, world, areaId) {
   }
   gGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
   gGeo.computeVertexNormals();
-  const gt = grassTex(); gt.repeat.set(G / 3, G / 3);
-  const ground = new THREE.Mesh(gGeo, new THREE.MeshLambertMaterial({ map: gt, vertexColors: true }));
+  const gt = grassTex(); gt.repeat.set(G / 5, G / 5);
+  const ground = new THREE.Mesh(gGeo, new THREE.MeshLambertMaterial({ map: gt, bumpMap: gt, bumpScale: 1.2, vertexColors: true }));
   scene.add(ground);
 
   // ---- the lake
@@ -544,8 +556,19 @@ export function buildCamp(scene, world, areaId) {
 
   // ---- the woods: instanced pines, birches; trunks inside the camp are solid
   const trunkGeo = new THREE.CylinderGeometry(0.14, 0.26, 1, 7); trunkGeo.translate(0, 0.5, 0);
-  const coneGeo = new THREE.ConeGeometry(1, 1, 8); coneGeo.translate(0, 0.5, 0);
-  const needleMat = new THREE.MeshLambertMaterial({ color: 0x1a2a1c, map: canvasTex(64, 64, (g, w, h) => { g.fillStyle = '#5a7a5a'; g.fillRect(0, 0, w, h); for (let i = 0; i < 300; i++) { g.fillStyle = `rgba(0,${20 + Math.random() * 40 | 0},0,0.6)`; g.fillRect(Math.random() * w, Math.random() * h, 1, 4); } }) });
+  const coneGeo = new THREE.ConeGeometry(1, 1, 10, 1, true); coneGeo.translate(0, 0.5, 0);
+  const branchTex = canvasTex(256, 256, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    // looking at the skirt of a tier unrolled: branches hanging from the top edge, fanning down, ragged at the bottom
+    for (let i = 0; i < 70; i++) {
+      const x = Math.random() * w, len = h * (0.55 + Math.random() * 0.45), sway = (Math.random() - 0.5) * 30;
+      g.strokeStyle = `rgb(${18 + Math.random() * 14 | 0},${30 + Math.random() * 18 | 0},${20 + Math.random() * 10 | 0})`; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(x, 0); g.quadraticCurveTo(x + sway * 0.5, len * 0.5, x + sway, len); g.stroke();
+      for (let k = 0; k < len; k += 4) { const px = x + sway * (k / len), sp = 5 + (k / len) * 9; g.strokeStyle = `rgba(${22 + Math.random() * 20 | 0},${40 + Math.random() * 24 | 0},${24 + Math.random() * 12 | 0},0.9)`; g.lineWidth = 1.4; g.beginPath(); g.moveTo(px - sp, k + 4); g.lineTo(px, k); g.lineTo(px + sp, k + 4); g.stroke(); }
+    }
+  });
+  branchTex.wrapS = THREE.RepeatWrapping; branchTex.repeat.set(3, 1);
+  const needleMat = new THREE.MeshLambertMaterial({ map: branchTex, alphaTest: 0.45, side: THREE.DoubleSide, color: 0xb8c8b0 });
   const trees = [];
   const roadX = z => CAR.x + (ROAD_END.x - CAR.x) * Math.max(0, Math.min(1, (z - CAR.z) / (120 - CAR.z)));
   const clear = (x, z) => {
@@ -571,13 +594,13 @@ export function buildCamp(scene, world, areaId) {
   const birchMat = new THREE.MeshLambertMaterial({ color: 0xc8c4b8, map: canvasTex(64, 128, (g, w, h) => { g.fillStyle = '#ddd8cc'; g.fillRect(0, 0, w, h); for (let i = 0; i < 40; i++) { g.fillStyle = '#1e1c1a'; g.fillRect(Math.random() * w, Math.random() * h, 4 + Math.random() * 14, 2); } }) });
   const pines = trees.filter(t => !t.birch && !t.oak), birches = trees.filter(t => t.birch), oaks = trees.filter(t => t.oak);
   const trunks = new THREE.InstancedMesh(trunkGeo, M.bark, pines.length), birchI = new THREE.InstancedMesh(trunkGeo, birchMat, birches.length);
-  const cones = new THREE.InstancedMesh(coneGeo, needleMat, pines.length * 3);
+  const TIERS = 5, cones = new THREE.InstancedMesh(coneGeo, needleMat, pines.length * TIERS);
   const birchTop = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ color: 0x2c3a20 }), birches.length);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3();
   pines.forEach((t, i) => {
     const y = groundAt(t.x, t.z);
     m4.compose(ps.set(t.x, y, t.z), q.identity(), sc.set(1 + t.r * 0.12, t.h * 0.45, 1 + t.r * 0.12)); trunks.setMatrixAt(i, m4);
-    for (let k = 0; k < 3; k++) { const base = t.h * (t.far ? 0.22 + k * 0.22 : 0.36 + k * 0.19), rr = t.r * (1 - k * 0.27); q.setFromAxisAngle(ps.set(0, 1, 0), srand() * 6); m4.compose(ps.set(t.x, y + base, t.z), q, sc.set(rr, t.h * 0.42, rr)); cones.setMatrixAt(i * 3 + k, m4); }
+    for (let k = 0; k < TIERS; k++) { const base = t.h * (t.far ? 0.2 + k * 0.15 : 0.32 + k * 0.125), rr = t.r * (1.05 - k * 0.19); q.setFromAxisAngle(ps.set(0, 1, 0), srand() * 6); m4.compose(ps.set(t.x, y + base, t.z), q, sc.set(rr, t.h * 0.3, rr)); cones.setMatrixAt(i * TIERS + k, m4); }
     if (!t.far && Math.abs(t.x) < BOUND + 4 && t.z < BOUND + 4) addSolid(t.x - 0.3, 0, t.z - 0.3, t.x + 0.3, 6, t.z + 0.3, false);
   });
   birches.forEach((t, i) => {
@@ -600,14 +623,17 @@ export function buildCamp(scene, world, areaId) {
   // ferns and long grass, kept off paths and out of buildings
   const tuftGeo = new THREE.PlaneGeometry(0.6, 0.45); tuftGeo.translate(0, 0.22, 0);
   const tuftGeo2 = tuftGeo.clone().rotateY(Math.PI / 2);
-  const tuftMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, alphaTest: 0.5, map: canvasTex(64, 64, (g, w, h) => { for (let i = 0; i < 26; i++) { g.strokeStyle = `rgb(${40 + Math.random() * 30 | 0},${70 + Math.random() * 40 | 0},${30})`; g.lineWidth = 2; g.beginPath(); const x = 8 + Math.random() * 48; g.moveTo(x, h); g.quadraticCurveTo(x + (Math.random() - 0.5) * 20, h * 0.5, x + (Math.random() - 0.5) * 30, Math.random() * h * 0.4); g.stroke(); } }) });
-  const NT = 2600, tufts = [new THREE.InstancedMesh(tuftGeo, tuftMat, NT), new THREE.InstancedMesh(tuftGeo2, tuftMat, NT)];
+  const tuftMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, alphaTest: 0.5, map: canvasTex(128, 128, (g, w, h) => {
+    for (let i = 0; i < 70; i++) { const x = 6 + Math.random() * (w - 12), c = 0.5 + Math.random() * 0.5; const gr = g.createLinearGradient(0, h, 0, 0); gr.addColorStop(0, `rgb(${18 * c | 0},${28 * c | 0},${12 * c | 0})`); gr.addColorStop(1, `rgb(${(60 + Math.random() * 40) * c | 0},${(90 + Math.random() * 50) * c | 0},${(34 + Math.random() * 20) * c | 0})`); g.strokeStyle = gr; g.lineWidth = 1.5 + Math.random(); g.beginPath(); g.moveTo(x, h); g.quadraticCurveTo(x + (Math.random() - 0.5) * 30, h * 0.5, x + (Math.random() - 0.5) * 50, Math.random() * h * 0.35); g.stroke(); }
+    return; for (let i = 0; i < 26; i++) { g.strokeStyle = `rgb(${40 + Math.random() * 30 | 0},${70 + Math.random() * 40 | 0},${30})`; g.lineWidth = 2; g.beginPath(); const x = 8 + Math.random() * 48; g.moveTo(x, h); g.quadraticCurveTo(x + (Math.random() - 0.5) * 20, h * 0.5, x + (Math.random() - 0.5) * 30, Math.random() * h * 0.4); g.stroke(); } }) });
+  const NT = 3600, tufts = [new THREE.InstancedMesh(tuftGeo, tuftMat, NT), new THREE.InstancedMesh(tuftGeo2, tuftMat, NT)];
   for (let i = 0; i < NT; i++) {
     let x, z, tries = 0;
     do { x = (srand() * 2 - 1) * 70; z = SHORE(0) + srand() * 100; tries++; } while (tries < 30 && (z < SHORE(x) + 1 || rectHeight(FLOORS, x, z) > -9 || rectHeight(FLOORS, x + 0.4, z) > -9 || rectHeight(FLOORS, x, z + 0.4) > -9 || paths.some(p => segD(x, z, p) < 1.2)));
     const s = 0.6 + srand() * 1.2;
     m4.compose(ps.set(x, tries >= 30 ? -5 : 0, z), q.setFromAxisAngle(sc.set(0, 1, 0), srand() * 6), sc.set(s, s, s));
     tufts[0].setMatrixAt(i, m4); tufts[1].setMatrixAt(i, m4);
+    const tint = new THREE.Color().setHSL(0.2 + srand() * 0.08, 0.35 + srand() * 0.2, 0.35 + srand() * 0.25); tufts[0].setColorAt(i, tint); tufts[1].setColorAt(i, tint);
   }
   scene.add(...tufts);
   const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), M.stone, 90);
@@ -680,6 +706,7 @@ export function buildCamp(scene, world, areaId) {
     scene.add(sp2); mist.push(sp2);
   }
   const updateMist = (t, cx, cz) => {
+    cloudTex.offset.x = t * 0.0009; cloudTex.offset.y = t * 0.0004;
     for (const m of mist) {
       m.position.x = m.userData.x0 + Math.sin(t * 0.02 + m.userData.x0) * 4 + t * m.userData.drift % 30;
       const d = Math.hypot(m.position.x - cx, m.position.z - cz);

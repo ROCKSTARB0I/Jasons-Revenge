@@ -1,19 +1,19 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=16';
-import { Human } from './body.js?v=16';
-import { sd, smin, ssub, mesh } from './sculpt.js?v=16';
-import { Blood } from './blood.js?v=16';
-import { sfx } from './sfx.js?v=16';
-import { score } from './score.js?v=16';
-import { Rain } from './rain.js?v=16';
-import { AREAS } from './areas.js?v=16';
-import { WINDMILL } from './camp.js?v=16';
-import { walkable } from './camp.js?v=16';
-import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, SURFACES, DOCK, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=16';
-import { buildHand, makeBody, poseBody, skinMat, cleanSkinMat, flannelMat } from './jason.js?v=16';
+import { Sim, STEP, segDist } from './sim.js?v=17';
+import { Human } from './body.js?v=17';
+import { sd, smin, ssub, mesh } from './sculpt.js?v=17';
+import { Blood } from './blood.js?v=17';
+import { sfx } from './sfx.js?v=17';
+import { score } from './score.js?v=17';
+import { Rain } from './rain.js?v=17';
+import { AREAS } from './areas.js?v=17';
+import { WINDMILL } from './camp.js?v=17';
+import { walkable } from './camp.js?v=17';
+import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, SURFACES, DOCK, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=17';
+import { buildHand, makeBody, poseBody, skinMat, cleanSkinMat, flannelMat } from './jason.js?v=17';
 const glove = side => new URLSearchParams(location.search).get('mode') === 'counselor' ? buildHand(side, cleanSkinMat, true) : buildHand(side);
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=16';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=17';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -32,7 +32,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.35;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.6;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0e1522);
@@ -40,11 +40,11 @@ scene.fog = new THREE.FogExp2(0x101824, 0.03);
 const rig = new THREE.Group(); scene.add(rig);
 const camera = new THREE.PerspectiveCamera(72, 1, 0.04, 600);
 camera.rotation.order = 'YXZ'; camera.position.set(0, 1.75, 0); rig.add(camera);
-scene.add(new THREE.HemisphereLight(0x5a6c8c, 0x1a1c20, 1.7));
-const moonLight = new THREE.DirectionalLight(0xa8bce0, 1.6); moonLight.position.set(-120, 170, -330); scene.add(moonLight, moonLight.target);
+scene.add(new THREE.HemisphereLight(0x4e5e7e, 0x16150f, 1.3));
+const moonLight = new THREE.DirectionalLight(0x9fb6e0, 2.3); moonLight.position.set(-120, 170, -330); scene.add(moonLight, moonLight.target);
 // moon shadows in a box that travels with you (trees, cabins, bodies, you)
 const MOON_DIR = new V3(-120, 170, -330).normalize();
-moonLight.castShadow = true; moonLight.shadow.mapSize.set(1024, 1024);
+moonLight.castShadow = true; moonLight.shadow.mapSize.set(1024, 1024); moonLight.shadow.radius = 2;
 Object.assign(moonLight.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 120 });
 moonLight.shadow.bias = -0.0006; moonLight.shadow.normalBias = 0.04;
 function followMoon(h) {
@@ -58,7 +58,7 @@ const sim = new Sim(); sim.floorAt = restAt;
 const hemiL = scene.children.find(o => o.isHemisphereLight);
 const rain = new Rain(scene, groundAt);
 rain.onThunder = () => sfx.thunder();
-const SKY = { clear: { bg: 0x0e1522, fog: 0x101824, density: 0.03, hemi: 1.7 }, wet: { bg: 0x0a0f17, fog: 0x0e141c, density: 0.045, hemi: 1.45 } };
+const SKY = { clear: { bg: 0x0e1522, fog: 0x141c28, density: 0.026, hemi: 1.55 }, wet: { bg: 0x0a0f17, fog: 0x10161e, density: 0.042, hemi: 1.25 } };
 function setWeather(wet) {
   const k = wet ? SKY.wet : SKY.clear;
   scene.background.setHex(k.bg); scene.fog.color.setHex(k.fog); scene.fog.density = k.density; hemiL.intensity = k.hemi;

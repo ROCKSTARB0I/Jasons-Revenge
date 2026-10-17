@@ -1,14 +1,14 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=10';
-import { Human } from './body.js?v=10';
-import { Blood } from './blood.js?v=10';
-import { sfx } from './sfx.js?v=10';
-import { score } from './score.js?v=10';
-import { Rain } from './rain.js?v=10';
-import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=10';
-import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=10';
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=10';
+import { Sim, STEP, segDist } from './sim.js?v=11';
+import { Human } from './body.js?v=11';
+import { Blood } from './blood.js?v=11';
+import { sfx } from './sfx.js?v=11';
+import { score } from './score.js?v=11';
+import { Rain } from './rain.js?v=11';
+import { buildCamp, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=11';
+import { buildHand, makeBody, poseBody, skinMat } from './jason.js?v=11';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=11';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -1362,9 +1362,14 @@ async function loadSting() {
 function sting() {
   const ac = sfx.ctx;
   if (!ac || !stingBuf || ac.currentTime < stingEnd - 1) return;
-  const g = ac.createGain(); g.gain.value = 0.9 * S.vol; g.connect(sfx.master ?? ac.destination);
-  const t0 = ac.currentTime + 0.05;
-  for (let i = 0; i < 2; i++) { const s = ac.createBufferSource(); s.buffer = stingBuf; s.connect(g); s.start(t0 + i * stingBuf.duration); }
+  const out = ac.createGain(); out.gain.value = 0.8 * S.vol; out.connect(sfx.master ?? ac.destination);
+  const t0 = ac.currentTime + 0.05, D = stingBuf.duration;
+  // each play eased in and out over a few milliseconds, so neither the start nor the seam between them clicks
+  for (let i = 0; i < 2; i++) {
+    const s = ac.createBufferSource(), g = ac.createGain(), st = t0 + i * D; s.buffer = stingBuf;
+    g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(1, st + 0.006); g.gain.setValueAtTime(1, st + D - 0.008); g.gain.linearRampToValueAtTime(0, st + D);
+    s.connect(g).connect(out); s.start(st); s.stop(st + D + 0.01);
+  }
   stingEnd = t0 + stingBuf.duration * 2;
 }
 function updateAudio() {

@@ -39,7 +39,7 @@ function pizz(t, freq, vol) {
   const o = ac.createOscillator(), g = ac.createGain(), lp = ac.createBiquadFilter();
   o.type = 'sawtooth'; o.frequency.value = freq;
   lp.type = 'lowpass'; lp.frequency.setValueAtTime(freq * 8, t); lp.frequency.exponentialRampToValueAtTime(freq * 1.2, t + 0.25);
-  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
   o.connect(lp).connect(g); g.connect(out); g.connect(verbIn);
   o.start(t); o.stop(t + 0.65);
 }
@@ -47,7 +47,7 @@ function pizz(t, freq, vol) {
 function stab(t, notes, vol = 0.07) {
   for (const m of notes) bow(t, hz(m), 0.32, vol, { attack: 0.006, release: 0.25, bright: 7000, vib: 0, voices: 2 });
   const n = ac.createBufferSource(), nb = ac.createBuffer(1, ac.sampleRate * 0.1, ac.sampleRate), d = nb.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) * Math.min(1, i / 120);   // eased in, or it clicks
   const f = ac.createBiquadFilter(), g = ac.createGain(); f.type = 'highpass'; f.frequency.value = 2500; g.gain.value = vol * 1.2;
   n.buffer = nb; n.connect(f).connect(g); g.connect(out); g.connect(verbIn); n.start(t);
 }
@@ -55,7 +55,7 @@ const STABS = [[76, 77, 82], [64, 70, 71], [79, 80, 85], [71, 72, 78], [88, 89, 
 
 function schedule() {
   if (ac.state !== 'running') { next.ost = next.pad = next.trem = next.pizz = 0; return; }
-  const now = ac.currentTime, ahead = now + 0.25;
+  const now = ac.currentTime + 0.02, ahead = now + 0.25;
   tension += (target - tension) * 0.08;
   const T = tension;
   master.gain.setTargetAtTime(0.55, now, 0.5);

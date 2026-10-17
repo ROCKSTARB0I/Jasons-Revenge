@@ -15,9 +15,9 @@ function ctx() {
   if (!ac) {
     ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
     master = ac.createDynamicsCompressor();
-    master.threshold.value = -10; master.knee.value = 6; master.ratio.value = 12; master.attack.value = 0.003; master.release.value = 0.2;
+    master.threshold.value = -8; master.knee.value = 12; master.ratio.value = 6; master.attack.value = 0.012; master.release.value = 0.3;   // gentle: a fast grab at peaks crackles
     master.connect(ac.destination);
-    bus = ac.createGain(); bus.connect(master);
+    bus = ac.createGain(); bus.gain.value = 0.8; bus.connect(master);
     noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = R() * 2 - 1;
     // the open air: a short, thin tail off the trees and the water
@@ -35,6 +35,8 @@ function ctx() {
   return ac;
 }
 const ok = v => Number.isFinite(v) ? v : 0;
+// schedule a hair ahead: an envelope that starts in the past jumps straight to full volume, and that's a click
+const LOOK = 0.015;
 // where a sound comes from: pan, distance falloff, and the far ones muffled
 function place(pos, vol = 1) {
   const g = ac.createGain();
@@ -51,15 +53,15 @@ function place(pos, vol = 1) {
 }
 function noise(dur, vol, f0, f1, type = 'lowpass', pos = null, delay = 0, q = 1) {
   if (!ac || ac.state !== 'running' || live > BUDGET) return;
-  const t = ac.currentTime + delay, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+  const t = ac.currentTime + LOOK + delay, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
   s.buffer = noiseBuf; s.loop = true; s.loopStart = R();
   f.type = type; f.Q.value = q; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
-  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + Math.min(0.01, dur * 0.2)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + Math.max(0.004, Math.min(0.01, dur * 0.2))); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   s.connect(f).connect(g).connect(place(pos)); track(s); s.start(t); s.stop(t + dur + 0.05);
 }
 function tone(type, f0, f1, dur, vol, pos = null, delay = 0) {
   if (!ac || ac.state !== 'running' || live > BUDGET) return;
-  const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+  const t = ac.currentTime + LOOK + delay, o = ac.createOscillator(), g = ac.createGain();
   o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
   g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   o.connect(g).connect(place(pos)); track(o); o.start(t); o.stop(t + dur + 0.05);
@@ -161,7 +163,7 @@ function ambience(fearFn) {
   // crickets: a carpet of chirps from all around
   const cricket = () => {
     if (!amb.on) return;
-    const t = ac.currentTime, p = ac.createStereoPanner(); p.pan.value = R() * 2 - 1; p.connect(master);
+    const t = ac.currentTime + LOOK, p = ac.createStereoPanner(); p.pan.value = R() * 2 - 1; p.connect(master);
     const f = 4200 + R() * 900, n = 2 + Math.floor(R() * 3);
     for (let i = 0; i < n; i++) { const o = ac.createOscillator(), g = ac.createGain(), st = t + i * 0.055; o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, st); g.gain.linearRampToValueAtTime(0.008 * amb.crickets, st + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, st + 0.035); o.connect(g).connect(p); o.start(st); o.stop(st + 0.04); }
     setTimeout(cricket, 350 + R() * 700);
@@ -169,7 +171,7 @@ function ambience(fearFn) {
   amb.crickets = 1; cricket();
   const loon = () => {
     if (!amb.on) return;
-    const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(), p = ac.createStereoPanner(); p.pan.value = R() * 1.6 - 0.8;
+    const t = ac.currentTime + LOOK, o = ac.createOscillator(), g = ac.createGain(), p = ac.createStereoPanner(); p.pan.value = R() * 1.6 - 0.8;
     o.type = 'sine'; o.frequency.setValueAtTime(620, t); o.frequency.linearRampToValueAtTime(880, t + 0.7); o.frequency.linearRampToValueAtTime(820, t + 1.8); o.frequency.linearRampToValueAtTime(940, t + 2.4); o.frequency.linearRampToValueAtTime(600, t + 3.2);
     const vib = ac.createOscillator(), vg = ac.createGain(); vib.frequency.value = 6; vg.gain.value = 12; vib.connect(vg).connect(o.frequency); vib.start(t); vib.stop(t + 3.3);
     g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.04, t + 0.3); g.gain.setValueAtTime(0.04, t + 2.8); g.gain.exponentialRampToValueAtTime(0.0001, t + 3.3);
@@ -179,7 +181,7 @@ function ambience(fearFn) {
   setTimeout(loon, 9000);
   const owl = () => {
     if (!amb.on) return;
-    const t = ac.currentTime, p = ac.createStereoPanner(); p.pan.value = R() * 2 - 1; p.connect(master);
+    const t = ac.currentTime + LOOK, p = ac.createStereoPanner(); p.pan.value = R() * 2 - 1; p.connect(master);
     for (const [dt, len] of [[0, 0.35], [0.5, 0.18], [0.75, 0.5]]) { const o = ac.createOscillator(), g = ac.createGain(); o.frequency.setValueAtTime(390, t + dt); o.frequency.linearRampToValueAtTime(340, t + dt + len); g.gain.setValueAtTime(0.0001, t + dt); g.gain.linearRampToValueAtTime(0.028, t + dt + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + dt + len); o.connect(g).connect(p); o.start(t + dt); o.stop(t + dt + len + 0.05); }
     setTimeout(owl, 18000 + R() * 30000);
   };
@@ -268,7 +270,7 @@ export const sfx = {
   // guts sliding out and slopping down: a heavy wet mass with a wobble to it, then dripping
   slop(pos) {
     if (!ac) return;
-    const t = ac.currentTime, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), am = ac.createOscillator(), amg = ac.createGain();
+    const t = ac.currentTime + LOOK, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), am = ac.createOscillator(), amg = ac.createGain();
     s.buffer = noiseBuf; s.loop = true; f.type = 'lowpass'; f.frequency.setValueAtTime(900, t); f.frequency.exponentialRampToValueAtTime(220, t + 0.9); f.Q.value = 4;
     am.frequency.value = 14 + R() * 8; amg.gain.value = 0.35; am.connect(amg).connect(g.gain);
     g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.5, t + 0.08); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);

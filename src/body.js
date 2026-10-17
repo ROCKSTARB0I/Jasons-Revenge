@@ -4,10 +4,10 @@
 // limbs, torsos and heads come apart along the line of the cut, capped with
 // flesh and bone, and what's inside falls out.
 import * as THREE from '../vendor/three.module.js';
-import { segDist } from './sim.js?v=10';
-import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=10';
-import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=10';
-import { sliceGeometry } from './slice.js?v=10';
+import { segDist } from './sim.js?v=11';
+import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=11';
+import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=11';
+import { sliceGeometry } from './slice.js?v=11';
 
 const V = THREE.Vector3, R = Math.random;
 const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), mb = new THREE.Matrix4(), UP = new V(0, 1, 0);
@@ -54,14 +54,19 @@ const stumpTex = tex(128, 128, (g, s) => {
   g.fillStyle = '#8a3020'; g.beginPath(); g.arc(c + 6, c - 4, c * 0.1, 0, 7); g.fill();
   for (let i = 0; i < 3; i++) { g.fillStyle = '#300'; g.beginPath(); g.arc(c + (R() - 0.5) * c, c + (R() - 0.5) * c, 3 + R() * 3, 0, 7); g.fill(); }
 });
-// the torso cut through at the waist: spine, gut, a cavity
+// the body wall cut through: red muscle in bands with yellow fat between (the cavity is a real hole now)
 const waistTex = tex(128, 128, (g, s) => {
-  const c = s / 2;
-  g.fillStyle = '#d0a080'; g.beginPath(); g.ellipse(c, c, c, c * 0.72, 0, 0, 7); g.fill();
-  g.fillStyle = '#5a0606'; g.beginPath(); g.ellipse(c, c, c * 0.92, c * 0.64, 0, 0, 7); g.fill();
-  for (let i = 0; i < 14; i++) { g.fillStyle = ['#b06878', '#c08090', '#8a3a3a', '#a85868'][i % 4]; g.beginPath(); g.ellipse(c + (R() - 0.5) * c * 1.2, c + (R() - 0.2) * c * 0.6, 6 + R() * 10, 5 + R() * 6, R() * 3, 0, 7); g.fill(); }
-  g.fillStyle = '#e8dcc4'; g.beginPath(); g.ellipse(c, c - c * 0.5, 9, 7, 0, 0, 7); g.fill();
+  g.fillStyle = '#7a0c0a'; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 60; i++) { g.strokeStyle = `rgba(${120 + R() * 70 | 0},${10 + R() * 20 | 0},16,0.6)`; g.lineWidth = 1 + R() * 2.5; const y = R() * s; g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(s * 0.3, y + (R() - 0.5) * 20, s * 0.7, y + (R() - 0.5) * 20, s, y + (R() - 0.5) * 10); g.stroke(); }
+  for (let i = 0; i < 14; i++) { g.fillStyle = `rgba(${190 + R() * 30 | 0},${140 + R() * 30 | 0},${70 + R() * 20 | 0},0.6)`; g.beginPath(); g.ellipse(R() * s, R() * s, 2 + R() * 5, 1.5 + R() * 2.5, R() * 3, 0, 7); g.fill(); }
 });
+// the inside of the body: a wet, dark membrane laced with vessels
+const cavityTex = tex(128, 128, (g, s) => {
+  g.fillStyle = '#5a0c0a'; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(${90 + R() * 60 | 0},10,10,0.35)`; g.beginPath(); g.arc(R() * s, R() * s, 4 + R() * 14, 0, 7); g.fill(); }
+  for (let i = 0; i < 18; i++) { g.strokeStyle = 'rgba(40,10,40,0.5)'; g.lineWidth = 0.8 + R() * 1.5; let x = R() * s, y = R() * s; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 8; k++) { x += (R() - 0.5) * 24; y += (R() - 0.5) * 24; g.lineTo(x, y); } g.stroke(); }
+});
+const cavityMat = new THREE.MeshStandardMaterial({ map: cavityTex, roughness: 0.22, metalness: 0.05 });
 const woundTex = {
   slash: tex(64, 128, (g, w, h) => {
     const gr = g.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, 'rgba(90,0,0,0)'); gr.addColorStop(0.3, 'rgba(110,4,4,0.85)'); gr.addColorStop(0.5, 'rgba(20,0,0,1)'); gr.addColorStop(0.7, 'rgba(110,4,4,0.85)'); gr.addColorStop(1, 'rgba(90,0,0,0)');
@@ -203,8 +208,8 @@ export class Human {
     this.parts = {};
     const layer = (g, geo, mat, cap) => { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.userData.layer = true; m.userData.cap = cap; g.add(m); return m; };
     const part = (name, from, to, capMat) => { const g = new THREE.Group(); g.scale.setScalar(s); this.group.add(g); return this.parts[name] = { name, g, from, to, gone: false, capMat }; };
-    const hips = part('hips', 'pelvis', 'spine', waistMat); layer(hips.g, G.hips.skin, pants, true);
-    const torso = part('torso', 'spine', 'neck', waistMat); layer(torso.g, G.torso.skin, shirt, true);
+    const hips = part('hips', 'pelvis', 'spine', waistMat); layer(hips.g, G.hips.skin, [pants, waistMat, cavityMat], true);
+    const torso = part('torso', 'spine', 'neck', waistMat); layer(torso.g, G.torso.skin, [shirt, waistMat, cavityMat], true);
     const neck = part('neck', 'neck', 'head', stumpMat); layer(neck.g, G.neck.skin, skin, true);
     const head = part('head', 'head', 'head', brainCapMat);
     this.buildFace(head.g, G.head.skin, skin, hair, o);
@@ -214,7 +219,7 @@ export class Human {
       const peak = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.012, 0.07), new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.3 })); peak.position.set(0, 0.075, 0.1); peak.rotation.x = 0.25; head.g.add(peak);
       const badge = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.035, 0.005), new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.8, roughness: 0.3 })); badge.position.set(0.08, 0.27, 0.115); torso.g.add(badge);
     }
-    // what's inside: the organs, hidden until someone opens them up
+    // what's inside: the organs, sitting in the cavity; hidden (not drawn) until someone opens them up
     for (const org of ORGANS) {
       const host = this.parts[org.group];
       const m = new THREE.Mesh(organGeo(org.name), organMat(org)); m.frustumCulled = false; m.visible = false; m.userData.organ = org;
@@ -552,6 +557,7 @@ export class Human {
   slicePart(name, point, normal) {
     const pt = this.parts[name]; if (!pt || pt.gone) return false;
     const k = kindOf(name);
+    if (k === 'torso' || k === 'hips') this.openUp();
     if (k === 'neck' && !pt.chunk) return this.decapitate(1.2, point, normal);
     if ((k === 'torso' || k === 'hips') && !pt.chunk && !this.severed.has('spine')) return this.halve(point, normal, name);
     pt.g.updateMatrixWorld(true);
@@ -586,10 +592,11 @@ export class Human {
       const lp = t1.copy(point).applyMatrix4(toMesh), ln = t2.copy(normal).transformDirection(toMesh), d = ln.dot(lp);
       const refM = t3.copy(refLocal).applyMatrix4(mb.copy(m.matrix).invert());
       const keepFront = ln.dot(refM) - d > 0;
-      if (m.userData.layer && m.geometry.attributes.position.count > 0) {
-        const { front, back } = sliceGeometry(m.geometry, ln.clone(), d, m.userData.cap);
+      const bone = m.userData.organ?.bone;   // the blade goes through ribs and spine too
+      if ((m.userData.layer || bone) && m.geometry.attributes.position.count > 0) {
+        const { front, back } = sliceGeometry(m.geometry, ln.clone(), d, bone ? true : m.userData.cap);
         const keep = keepFront ? front : back, lose = keepFront ? back : front;
-        const mats = Array.isArray(m.material) ? m.material : [m.material, capMat];
+        const mats = Array.isArray(m.material) ? m.material : [m.material, bone ? m.material : capMat];
         if (lose) { const nm = new THREE.Mesh(lose, mats); nm.matrix.copy(m.matrix); nm.matrixAutoUpdate = false; nm.userData = { ...m.userData }; nm.frustumCulled = false; go.push(nm); this.ownGeos.push(lose); }
         if (keep) { m.geometry = keep; m.material = mats; this.ownGeos.push(keep); stay.push(m); } else g.remove(m);
       } else {
@@ -598,8 +605,9 @@ export class Human {
         const side = t4.copy(normal).transformDirection(mb.copy(g.matrixWorld).invert());
         const pl = t1.copy(point).applyMatrix4(mb.copy(g.matrixWorld).invert());
         const s = side.dot(t2.subVectors(pos, pl)), sr = side.dot(t2.subVectors(refLocal, pl));
-        if (m.userData.organ) continue;   // organs are dealt with by whoever opened the body
-        if ((s > 0) !== (sr > 0)) { g.remove(m); m.matrixAutoUpdate = false; go.push(m); }
+        // organs go with whichever piece they sit in (their mesh is centred on the body, so go by the organ's own middle)
+        const so = m.userData.organ ? side.dot(t2.set(...m.userData.organ.c).applyMatrix4(m.matrix).sub(pl)) : s;
+        if ((so > 0) !== (sr > 0)) { g.remove(m); m.matrixAutoUpdate = false; go.push(m); }
       }
     }
     return { stay, go };
@@ -608,7 +616,7 @@ export class Human {
   rehome(meshes, oldW, g) {
     g.updateMatrixWorld(true);
     const inv = mb.copy(g.matrixWorld).invert().multiply(oldW);
-    for (const m of meshes) { const mm = new THREE.Matrix4().multiplyMatrices(inv, m.matrix); m.matrixAutoUpdate = true; mm.decompose(m.position, m.quaternion, m.scale); m.castShadow = true; g.add(m); }
+    for (const m of meshes) { const mm = new THREE.Matrix4().multiplyMatrices(inv, m.matrix); m.matrixAutoUpdate = true; mm.decompose(m.position, m.quaternion, m.scale); m.castShadow = !m.userData.organ; g.add(m); }
   }
   // a limb cut part-way: the near end stays as a stump, the far end (and everything past it) comes away
   cutLimb(pt, point, normal, go, oldW) {
@@ -674,6 +682,7 @@ export class Human {
   // through the middle: everything above comes off everything below, and the insides come out
   halve(point, normal, name) {
     if (this.split) return false;
+    this.openUp();
     this.split = 'waist'; this.cause = 'halved';
     const torso = this.parts.torso, hips = this.parts.hips;
     torso.g.updateMatrixWorld(true); hips.g.updateMatrixWorld(true);
@@ -696,10 +705,10 @@ export class Human {
     for (const m of [...this.organs]) {
       const org = m.userData.organ; if (onlyGroup && org.group !== onlyGroup) continue;
       if (!m.parent) continue;
-      m.parent.updateMatrixWorld(true);
-      const c = t1.set(...org.c).applyMatrix4(m.parent.matrixWorld);
+      m.parent.updateMatrixWorld(true); m.updateMatrix(); m.updateMatrixWorld(true);
+      const c = t1.set(...org.c).applyMatrix4(m.matrixWorld);
       const dist = Math.abs(t2.subVectors(c, point).dot(normal));
-      if (dist > org.r + 0.07 || org.bone) continue;   // the skeleton stays where it is
+      if (dist > org.r * 0.75 + 0.015 || org.bone) continue;   // the skeleton, and anything the cut didn't reach, stays inside
       const host = m.parent, oldW = host.matrixWorld.clone();
       m.visible = true; m.updateMatrix(); host.remove(m);
       this.organs.splice(this.organs.indexOf(m), 1);
@@ -796,7 +805,14 @@ export class Human {
   }
 
   // belly opened: the gut spills out and hangs
+  // the body's been opened: what's inside can be seen now
+  openUp() {
+    if (this.opened) return;
+    this.opened = true;
+    for (const m of this.organs) { m.visible = true; m.castShadow = false; }
+  }
   disembowel() {
+    this.openUp();
     if (this.gutted || this.split) return false;
     this.gutted = true;
     this.entrails(this.p.spine, 10, true);
@@ -825,7 +841,7 @@ export class Human {
   // punched through the ribs and pulled out: returns the heart so a hand can hold it
   ripHeart() {
     if (this.heartOut || this.split) return null;
-    this.heartOut = true;
+    this.heartOut = true; this.openUp();
     const P = this.p, fwd = t1.subVectors(P.lSh, P.rSh).cross(t2.subVectors(P.neck, P.pelvis)).normalize().multiplyScalar(-1);
     const at = t2.copy(P.chest).lerp(P.neck, 0.2).addScaledVector(fwd, 0.14);
     const heart = this.sim.point(at.x, at.y, at.z, 0.045, 0.3, this, 'heart');

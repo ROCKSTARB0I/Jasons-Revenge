@@ -4,7 +4,7 @@
 // Y runs from the joint it hangs from to the next joint, Z is the body's front,
 // X its right. Lengths match the skeleton in body.js.
 import * as THREE from '../vendor/three.module.js';
-import { sd, smin, ssub, mesh, uvCylinder, uvSphere } from './sculpt.js?v=10';
+import { sd, smin, ssub, mesh, uvCylinder, uvSphere } from './sculpt.js?v=11';
 
 const { sphere, ell, cone, box } = sd;
 export const LEN = { hips: 0.21, torso: 0.36, neck: 0.14, upper: 0.281, fore: 0.25, hand: 0.17, thigh: 0.42, shin: 0.416, foot: 0.17 };
@@ -116,14 +116,36 @@ const clipBelow = (f, yMax) => (x, y, z) => Math.max(f(x, y, z), y - yMax);   //
 const clipAbove = (f, yMin) => (x, y, z) => Math.max(f(x, y, z), yMin - y);   // keep only y > yMin
 
 // ---------------------------------------------------------------- meshes, cached per build
+const WALL = 0.026;
+// a shell of f, WALL thick, hollowed only where region(x, y, z) < 0. The lining
+// (inside faces) is its own group (material 2); group 1 is left for cut caps.
+function hollow(f, region, min, max, len) {
+  const cavity = (x, y, z) => Math.max(f(x, y, z) + WALL, region(x, y, z));
+  const shell = (x, y, z) => Math.max(f(x, y, z), -cavity(x, y, z));
+  const g = uvCylinder(mesh(shell, min, max, 0.0125), len);
+  // sort the triangles: outside first, then the lining
+  const P = g.attributes.position.array, N = g.attributes.normal.array, U = g.attributes.uv.array, tris = P.length / 9;
+  const outer = [], inner = [];
+  for (let t = 0; t < tris; t++) {
+    const cx = (P[t * 9] + P[t * 9 + 3] + P[t * 9 + 6]) / 3, cy = (P[t * 9 + 1] + P[t * 9 + 4] + P[t * 9 + 7]) / 3, cz = (P[t * 9 + 2] + P[t * 9 + 5] + P[t * 9 + 8]) / 3;
+    (f(cx, cy, cz) < -WALL * 0.5 ? inner : outer).push(t);
+  }
+  const p = new Float32Array(P.length), n = new Float32Array(N.length), u = new Float32Array(U.length);
+  [...outer, ...inner].forEach((t, i) => { p.set(P.subarray(t * 9, t * 9 + 9), i * 9); n.set(N.subarray(t * 9, t * 9 + 9), i * 9); u.set(U.subarray(t * 6, t * 6 + 6), i * 6); });
+  g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('normal', new THREE.BufferAttribute(n, 3)); g.setAttribute('uv', new THREE.BufferAttribute(u, 2));
+  g.addGroup(0, outer.length * 3, 0); g.addGroup(outer.length * 3, 0, 1); g.addGroup(outer.length * 3, inner.length * 3, 2);
+  return g;
+}
 const cache = {};
 export function bodyParts(female, build = 1) {
   const key = (female ? 'f' : 'm') + build; if (cache[key]) return cache[key];
   const S = shapes(female, build);
   const B = (f, min, max, cell, len) => uvCylinder(mesh(f, min, max, cell), len);
   const P = {};
-  P.torso = { skin: B(S.torso, [-0.26, -0.08, -0.17], [0.26, 0.45, 0.18], 0.017, 0.4) };
-  P.hips = { skin: B(S.hips, [-0.25, -0.2, -0.19], [0.25, 0.27, 0.16], 0.017, 0.3) };
+  // the trunk is hollow: a thick wall of skin, fat, muscle and ribs round a cavity the organs sit in
+  P.torso = { skin: hollow(S.torso, (x, y, z) => Math.max(Math.abs(x) - 0.122, y - 0.33, 0.09 - y),   // floored above where the hips overlap
+    [-0.26, -0.08, -0.17], [0.26, 0.45, 0.18], 0.4) };
+  P.hips = { skin: hollow(S.hips, (x, y, z) => Math.max(Math.abs(x) - 0.12, -0.03 - y), [-0.25, -0.2, -0.19], [0.25, 0.27, 0.16], 0.3) };
   P.neck = { skin: B(S.neck, [-0.08, -0.06, -0.07], [0.08, 0.16, 0.08], 0.01, 0.14) };
   P.head = { skin: uvSphere(mesh(S.head, [-0.11, -0.2, -0.13], [0.11, 0.14, 0.14], 0.0065), 0) };
   // hair: a shell over the scalp above the hairline (higher at the front), and length down the back
@@ -152,8 +174,8 @@ export const ORGANS = [
   { name: 'heart', group: 'torso', c: [-0.022, 0.2, 0.035], r: 0.06, color: 0x7a1414 },
   { name: 'lungL', group: 'torso', c: [-0.072, 0.225, -0.005], r: 0.09, color: 0xc07a80 },
   { name: 'lungR', group: 'torso', c: [0.075, 0.225, -0.005], r: 0.09, color: 0xc07a80 },
-  { name: 'liver', group: 'torso', c: [0.045, 0.07, 0.025], r: 0.09, color: 0x4a1210 },
-  { name: 'stomach', group: 'torso', c: [-0.05, 0.075, 0.04], r: 0.06, color: 0xc8907e },
+  { name: 'liver', group: 'torso', c: [0.045, 0.13, 0.025], r: 0.09, color: 0x4a1210 },
+  { name: 'stomach', group: 'torso', c: [-0.05, 0.135, 0.035], r: 0.06, color: 0xc8907e },
   { name: 'kidneyL', group: 'torso', c: [-0.052, 0.015, -0.06], r: 0.045, color: 0x6a1a18 },
   { name: 'kidneyR', group: 'torso', c: [0.052, 0.005, -0.06], r: 0.045, color: 0x6a1a18 },
   { name: 'bowel', group: 'hips', c: [0, 0.1, 0.03], r: 0.1, color: 0xc89090 },
@@ -173,10 +195,10 @@ function organShape(name) {
       d = smin(d, cone(x, y, z, 0.012, 0.24, 0.04, 0.02, 0.28, 0.035, 0.011, 0.01), 0.01);   // pulmonary trunk
       return d;
     };
-    case 'lungL': return (x, y, z) => ssub(ell(x, y, z, -0.072, 0.225, -0.005, 0.058, 0.11, 0.07), ell(x, y, z, -0.025, 0.19, 0.04, 0.04, 0.05, 0.04), 0.02);   // notched for the heart
-    case 'lungR': return (x, y, z) => ell(x, y, z, 0.075, 0.225, -0.005, 0.063, 0.11, 0.072);
-    case 'liver': return (x, y, z) => smin(ell(x, y, z, 0.06, 0.075, 0.025, 0.075, 0.045, 0.06), ell(x, y, z, -0.01, 0.085, 0.04, 0.05, 0.025, 0.04), 0.03);
-    case 'stomach': return (x, y, z) => smin(ell(x, y, z, -0.06, 0.08, 0.04, 0.045, 0.05, 0.035), cone(x, y, z, -0.04, 0.05, 0.045, 0.0, 0.045, 0.05, 0.022, 0.015), 0.02);
+    case 'lungL': return (x, y, z) => ssub(ell(x, y, z, -0.066, 0.225, -0.005, 0.05, 0.1, 0.06), ell(x, y, z, -0.025, 0.19, 0.04, 0.04, 0.05, 0.04), 0.02);   // notched for the heart
+    case 'lungR': return (x, y, z) => ell(x, y, z, 0.068, 0.225, -0.005, 0.054, 0.1, 0.062);
+    case 'liver': return (x, y, z) => smin(ell(x, y, z, 0.05, 0.13, 0.02, 0.068, 0.04, 0.054), ell(x, y, z, -0.01, 0.14, 0.04, 0.05, 0.025, 0.04), 0.03);
+    case 'stomach': return (x, y, z) => smin(ell(x, y, z, -0.06, 0.14, 0.035, 0.042, 0.045, 0.034), cone(x, y, z, -0.04, 0.11, 0.04, 0.0, 0.105, 0.045, 0.02, 0.014), 0.02);
     case 'kidneyL': return (x, y, z) => ssub(ell(x, y, z, -0.052, 0.015, -0.06, 0.024, 0.045, 0.02), sphere(x, y, z, -0.025, 0.015, -0.06, 0.012), 0.01);
     case 'kidneyR': return (x, y, z) => ssub(ell(x, y, z, 0.052, 0.005, -0.06, 0.024, 0.045, 0.02), sphere(x, y, z, 0.025, 0.005, -0.06, 0.012), 0.01);
     case 'bowel': {

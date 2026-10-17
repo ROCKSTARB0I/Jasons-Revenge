@@ -4,10 +4,10 @@
 // limbs, torsos and heads come apart along the line of the cut, capped with
 // flesh and bone, and what's inside falls out.
 import * as THREE from '../vendor/three.module.js';
-import { segDist } from './sim.js?v=14';
-import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=14';
-import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=14';
-import { sliceGeometry } from './slice.js?v=14';
+import { segDist } from './sim.js?v=15';
+import { realFace, fleshTex, fabricTex, shirtTex } from './faces.js?v=15';
+import { bodyParts, ORGANS, organGeo, LEN } from './anatomy.js?v=15';
+import { sliceGeometry } from './slice.js?v=15';
 
 const V = THREE.Vector3, R = Math.random;
 const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), mb = new THREE.Matrix4(), UP = new V(0, 1, 0);
@@ -301,7 +301,9 @@ export class Human {
     if (this.pose === 'sleep') return this.sleepPose();
     const A = this.anim, s = this.s, sp = this.speed, run = Math.min(1, Math.max(0, (sp - 1.6) / 1.6)), walk = Math.min(1, sp / 1.0);
     const T = this.time, pose = this.pose;
-    const crouch = pose === 'hide' || pose === 'cower' ? 1 : 0;
+    const crouchT = pose === 'hide' || pose === 'cower' ? 1 : 0;
+    this.crouchS = (this.crouchS ?? crouchT) + (crouchT - (this.crouchS ?? crouchT)) * Math.min(1, dt * (this.menace ? 1.7 : 9));   // Jason rises slowly
+    const crouch = this.crouchS;
     const ph = this.phase, bob = (0.018 + run * 0.03) * walk * Math.abs(Math.sin(ph));
     const lean = run * 0.32 + walk * 0.05 + crouch * 0.25 + (this.menace ? 0.13 : 0);   // Jason: hunched, heavy, coming at you
     const hard = this.scared || this.breathHard;
@@ -367,6 +369,7 @@ export class Human {
       else if (pose === 'flail') { hand.set(0.35 * sx, 1.45 + Math.sin(T * 12 + off) * 0.25, 0.2 + Math.cos(T * 10) * 0.2); bend.set(sx, -1, 0); }
       else if (pose === 'raise' && side === 'r') { hand.set(0.16, A.head.y + 0.34, A.head.z - 0.1); bend.set(1, 0.6, -0.5); }
       else if (pose === 'strike' && side === 'r') { hand.set(-0.14, A.pelvis.y + 0.18, A.chest.z + 0.52); bend.set(1, -0.2, 0.3); }
+      else if (pose === 'unmask' && side === 'l') { const k = this.unmaskK ?? 0; hand.set(-0.02, A.head.y + 0.0 + k * 0.13, A.head.z + 0.17 + k * 0.05); bend.set(-1, -0.4, 0); }
       else if (pose === 'choke' && side === 'l') { hand.set(-0.03, A.neck.y + 0.06, A.chest.z + 0.55); bend.set(-1, -0.6, 0); }
       else if ((pose === 'raise' || pose === 'strike') && side === 'l') { hand.set(-0.26, 0.9, pose === 'raise' ? 0.12 : -0.05); bend.set(-0.6, -0.3, -1); }
       else if (this.menace && run < 0.3) { const sw = Math.cos(p) * (side === 'r' ? 0.07 : 0.12) * walk; hand.set(0.27 * sx, 0.85 + Math.abs(sw) * 0.1, sw + 0.08); bend.set(sx * 0.6, -0.3, -1); }   // arms heavy at his sides, the machete low

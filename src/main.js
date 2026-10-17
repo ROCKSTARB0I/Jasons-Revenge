@@ -1,18 +1,18 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=14';
-import { Human } from './body.js?v=14';
-import { sd, smin, ssub, mesh } from './sculpt.js?v=14';
-import { Blood } from './blood.js?v=14';
-import { sfx } from './sfx.js?v=14';
-import { score } from './score.js?v=14';
-import { Rain } from './rain.js?v=14';
-import { AREAS } from './areas.js?v=14';
-import { WINDMILL } from './camp.js?v=14';
-import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, SURFACES, DOCK, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=14';
-import { buildHand, makeBody, poseBody, skinMat, cleanSkinMat, flannelMat } from './jason.js?v=14';
+import { Sim, STEP, segDist } from './sim.js?v=15';
+import { Human } from './body.js?v=15';
+import { sd, smin, ssub, mesh } from './sculpt.js?v=15';
+import { Blood } from './blood.js?v=15';
+import { sfx } from './sfx.js?v=15';
+import { score } from './score.js?v=15';
+import { Rain } from './rain.js?v=15';
+import { AREAS } from './areas.js?v=15';
+import { WINDMILL } from './camp.js?v=15';
+import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, SURFACES, DOCK, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=15';
+import { buildHand, makeBody, poseBody, skinMat, cleanSkinMat, flannelMat } from './jason.js?v=15';
 const glove = side => new URLSearchParams(location.search).get('mode') === 'counselor' ? buildHand(side, cleanSkinMat, true) : buildHand(side);
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=14';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=15';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
@@ -1867,26 +1867,106 @@ function useMedkit() {
   if (!HUNT || !has('medkit') || H.hits <= 0 || H.dead) return;
   take('medkit'); H.hits--; caption('You bandage it, hands shaking.', 2.5); sfx.slop?.(headPos());
 }
-function playerDies() {
+function playerDies(kind) {
   H.dead = true; H.task = null; P.hidden = null; updateCrack(0);
-  score.setMood('witness'); score.stinger(true); sting();
-  jumpscare();
+  score.setMood('witness'); sting();
+  const dur = jumpscare(kind);
   setTimeout(() => {
     paused = true;
     openMenu('YOU DIED', [`${AREA.name}. Night ${RUN.night}.`, `You lasted ${Math.floor(RUN.t / 60)}m ${Math.floor(RUN.t % 60)}s.`, '', ...RUN.kills.map(k => `${k.name} — ${k.how}`)], [
       { label: 'Try again', act: () => { closeMenu(); paused = false; startNight(RUN.night); } },
       { label: 'Back to the title', act: () => location.reload() },
     ]);
-  }, 2600);
+  }, dur * 1000 + 300);
 }
-// (a fuller set of these is coming: for now, he's simply there, right in your face)
+// ============================================================ how you die: six ways he gets you (picked at random)
+// Each one is staged right in front of your eyes (in VR he moves to stay in your view
+// rather than turning your head for you), with no red wash over it, and ends in black.
 let scare = null;
-function jumpscare() {
-  if (!JN) return;
-  const me = headPos(), f = tv.copy(NEG_Z).applyQuaternion(camera.getWorldQuaternion(tq)); f.y = 0; f.normalize();
-  scare = { t: 0 };
-  JN.ragdoll(0); JN.mode = 'anim'; JN.root.x = me.x + f.x * 0.75; JN.root.z = me.z + f.z * 0.75; JN.yaw = Math.atan2(-f.x, -f.z); JN.face = JN.yaw; JN.goal = null; JN.speed = 0; JN.pose = 'raise'; JN.tilt = 0.6; JN.blend = 1;
-  JN.look = { x: me.x, z: me.z };
+const fade = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false }));
+fade.position.z = -0.09; fade.renderOrder = 1010; fade.visible = false; camera.add(fade);
+const murk = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), new THREE.MeshBasicMaterial({ color: 0x0b2626, transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false }));
+murk.position.z = -0.095; murk.renderOrder = 1009; murk.visible = false; camera.add(murk);
+// a dim, cold light on his face so you see exactly what's got you (your flashlight, fallen)
+const scareLight = new THREE.PointLight(0xd0d8e8, 0, 3.5, 1.6); scene.add(scareLight);
+const chestBlade = buildWeapon('machete'); chestBlade.visible = false; camera.add(chestBlade);
+chestBlade.position.set(0.03, -0.42, -0.06); chestBlade.rotation.set(-0.35, 0.05, 0);
+const SCARES = {
+  // found in your hiding place: the doors fly open and he's on you
+  doors: { dur: 2.0, dist: t => t < 0.16 ? 1.05 - (t / 0.16) * 0.72 : 0.33, pose: t => 'choke', tilt: t => 0.25, hit: 0.14 },
+  // crouched in front of you, he stands up and up, looking down at you, then the machete
+  rise: { dur: 2.3, dist: t => 0.55 - Math.max(0, t - 1.45) * 0.3, pose: t => t < 1.0 ? 'hide' : t < 1.45 ? 'raise' : 'strike', tilt: t => Math.min(0.9, t * 0.8), hit: 1.45 },
+  // a hand round your throat; your feet leave the ground
+  throat: { dur: 2.4, dist: t => 0.42, pose: t => t < 1.6 ? 'choke' : t < 1.9 ? 'raise' : 'strike', tilt: t => 0.35 + Math.sin(t * 3) * 0.1, lift: t => Math.min(1, t / 0.7) * 0.38, hit: 0.05, hit2: 1.9 },
+  // the machete through your chest, and he leans in to watch
+  chest: { dur: 2.3, dist: t => t < 0.12 ? 0.75 - t * 2.5 : 0.45 - Math.min(0.15, (t - 0.12) * 0.1), pose: t => 'strike', tilt: t => Math.min(0.8, t * 0.5), hit: 0.1, blade: true },
+  // dragged under the lake: dark water, bubbles, the mask coming out of the murk
+  drown: { dur: 2.6, dist: t => 1.1 - Math.min(0.75, t * 0.45), pose: t => t < 1.3 ? 'idle' : 'choke', tilt: t => 0.2, sink: t => Math.min(1, t / 0.5) * 0.9, hit: 1.3, water: true },
+  // slammed back against the wall and held there while his head turns, slowly, one way and then the other
+  pinned: { dur: 2.6, dist: t => t < 0.15 ? 0.6 - t * 1.6 : 0.36, pose: t => t < 2.1 ? 'choke' : 'strike', tilt: t => Math.sin(t * 1.4) * 0.9, push: t => Math.min(1, t / 0.15) * 0.55, hit: 0.15, hit2: 2.1 },
+  // he takes the mask off
+  reveal: { dur: 2.6, dist: t => t < 1.55 ? 0.6 : Math.max(0.3, 0.6 - (t - 1.55) * 2), pose: t => t < 0.35 ? 'idle' : t < 1.55 ? 'unmask' : 'choke', tilt: t => t < 1.55 ? Math.min(0.5, t * 0.4) : 0.15, unmask: t => Math.max(0, Math.min(1, (t - 0.45) / 0.9)), hit: 1.55 },
+};
+function jumpscare(kind) {
+  if (!JN) return 2;
+  const me = headPos();
+  if (!kind) {
+    const nearWater = me.z < shoreZ(me.x) + 6;
+    const pool = ['rise', 'throat', 'chest', 'pinned', 'reveal', ...(nearWater ? ['drown', 'drown'] : [])];
+    kind = pick(pool);
+  }
+  const S = SCARES[kind];
+  scare = { kind, S, t: 0, hits: 0, base: rig.position.clone() };
+  JN.ragdoll(0); JN.mode = 'anim'; JN.goal = null; JN.speed = 0; JN.blend = 1; JN.downT = 0;
+  if (JN.ai.victim) releaseVictim();
+  fade.visible = true; fade.material.opacity = 0;
+  murk.visible = !!S.water; chestBlade.visible = false;
+  placeScare(0, true);
+  return S.dur;
+}
+function placeScare(dt, first = false) {
+  const sc = scare, S = sc.S, t = sc.t, me = headPos();
+  const f = tv.copy(NEG_Z).applyQuaternion(camera.getWorldQuaternion(tq)); f.y = 0; if (f.lengthSq() < 1e-4) f.set(0, 0, -1); f.normalize();
+  if (first || inVR) sc.f = sc.f ? sc.f.lerp(f, Math.min(1, dt * 6)).normalize() : f.clone();
+  const F = sc.f, d = S.dist(t);
+  // he stands just there, square on to you, looking at you
+  JN.root.x = me.x + F.x * (d + 0.18); JN.root.z = me.z + F.z * (d + 0.18);
+  JN.yaw = Math.atan2(-F.x, -F.z); JN.face = JN.yaw; JN.goal = null; JN.speed = 0;
+  JN.pose = S.pose(t); JN.tilt = S.tilt(t); JN.look = { x: me.x, z: me.z };
+  JN.unmaskK = S.unmask ? S.unmask(t) : 0;
+  // what happens to you
+  const base = sc.base, shake = t < 0.6 || (S.hit2 && Math.abs(t - S.hit2) < 0.3) ? 0.012 : 0.003;
+  rig.position.set(base.x + (Math.random() - 0.5) * shake - (S.push ? F.x * S.push(t) : 0), base.y + (S.lift ? S.lift(t) : 0) - (S.sink ? S.sink(t) : 0) + (Math.random() - 0.5) * shake, base.z + (Math.random() - 0.5) * shake - (S.push ? F.z * S.push(t) : 0));
+}
+function updateScare(dt) {
+  if (!scare) return;
+  const sc = scare, S = sc.S;
+  sc.t += dt;
+  placeScare(dt);
+  // the moments it hits: a slam of sound, and the blade
+  for (const [when, k] of [[S.hit, 1], [S.hit2, 2]]) if (when != null && sc.hits < k && sc.t >= when) {
+    sc.hits = k; sfx.impact(); sfx.chop(true, headPos()); score.stinger(true); for (const h of hands()) pulse(h, 1, 250);
+    if (k === 1 && S.blade) { chestBlade.visible = true; sfx.stab(headPos()); sfx.squelch(headPos()); }
+    if (k === 1 && sc.kind === 'pinned') sfx.thud(headPos());
+  }
+  if (chestBlade.visible && Math.random() < dt * 20) { chestBlade.updateMatrixWorld(true); const b = new V3(0, 0, -0.35).applyMatrix4(chestBlade.matrixWorld); blood.drop(b.x, b.y, b.z, (Math.random() - 0.5) * 0.3, -0.4, (Math.random() - 0.5) * 0.3, 0.006); }
+  if (S.water) { murk.material.opacity = Math.min(0.55, sc.t * 1.4); if (Math.random() < dt * 14) bubbles(headPos(), 2); if (sc.t < 0.1) sfx.splash(headPos(), true); }
+  // the mask coming off
+  if (S.unmask && JN.mask) { const k = S.unmask(sc.t); JN.mask.position.set(0, k * 0.1, k * 0.07); JN.mask.rotation.x = -k * 1.35; if (JN.deformed) JN.deformed.visible = k > 0.02; }
+  if (sc.kind === 'drown' || sc.kind === 'throat') { if (Math.random() < dt * 2) sfx.breath(headPos(), false); }
+  // his heavy breathing, right in your face
+  if (Math.random() < dt * 1.2) sfx.breath(JN.p.head, false);
+  // desktop: your eyes are dragged to him; in VR he's already where you're looking
+  if (!inVR) { const e = JN.p.head; camera.getWorldPosition(tv); const yaw = Math.atan2(-(e.x - tv.x), -(e.z - tv.z)), pitch = Math.atan2(e.y - tv.y + 0.05, Math.hypot(e.x - tv.x, e.z - tv.z)); deskYaw += angDiff(yaw, deskYaw) * Math.min(1, dt * 14); deskPitch += (pitch - deskPitch) * Math.min(1, dt * 14); camera.rotation.set(deskPitch, deskYaw, 0); }
+  { const e = JN.p.head, me = headPos(); scareLight.position.set(me.x + (e.x - me.x) * 0.35, me.y - 0.25, me.z + (e.z - me.z) * 0.35); scareLight.intensity = 1.5; }
+  // and then nothing
+  const end = S.dur;
+  fade.material.opacity = sc.t > end - 0.35 ? Math.min(1, (sc.t - (end - 0.35)) / 0.2) : 0;
+  P.hurtT = 0;
+}
+function clearScare() {
+  scare = null; scareLight.intensity = 0; fade.visible = false; fade.material.opacity = 0; murk.visible = false; chestBlade.visible = false;
+  if (JN) { JN.unmaskK = 0; if (JN.deformed) JN.deformed.visible = false; if (JN.mask) { JN.mask.position.set(0, 0, 0); JN.mask.rotation.set(0, 0, 0); } }
 }
 function escapeBy(how) {
   if (H.won || H.dead) return;
@@ -1974,7 +2054,53 @@ const maskTexJ = (() => {
   for (const [x, y] of MASK_NOSTRILS) hole(x, y, 0.0032, 0.0025);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
 })();
-let maskGeoJ = null;
+let maskGeoJ = null, deformedGeo = null;
+// what's under the mask: swollen, lopsided, the nose half gone, the mouth a torn gash with a few
+// crooked teeth, one socket sagging lower than the other, and nothing in either but dark
+const deformedTex = (() => {
+  const W = 256, Hh = Math.round(256 * MASK_H / MASK_W), c = document.createElement('canvas'); c.width = W; c.height = Hh; const g = c.getContext('2d');
+  const X = x => (x / MASK_W + 0.5) * W, Y = y => (1 - (y - MASK_Y0) / MASK_H) * Hh, S = v => v / MASK_W * W;
+  g.fillStyle = '#8a7a66'; g.fillRect(0, 0, W, Hh);
+  const blob = (x, y, r, col) => { const gr = g.createRadialGradient(X(x), Y(y), 0, X(x), Y(y), S(r)); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, Hh); };
+  for (let i = 0; i < 40; i++) blob((Math.random() - 0.5) * 0.18, Math.random() * 0.26 - 0.14, 0.01 + Math.random() * 0.03, ['rgba(120,70,70,0.5)', 'rgba(90,96,70,0.5)', 'rgba(150,130,100,0.4)', 'rgba(60,40,40,0.5)'][i % 4]);
+  for (const [x, y] of [[-0.031, 0.018], [0.031, 0.004]]) blob(x, y, 0.03, 'rgba(20,6,6,0.95)');   // the sockets
+  blob(0, -0.022, 0.016, 'rgba(40,12,10,0.9)'); blob(0, -0.066, 0.03, 'rgba(50,8,6,0.9)');
+  for (let i = 0; i < 2500; i++) { g.fillStyle = `rgba(${40 + Math.random() * 40 | 0},${30 + Math.random() * 20 | 0},20,${Math.random() * 0.25})`; g.fillRect(Math.random() * W, Math.random() * Hh, 1 + Math.random() * 2, 1 + Math.random() * 2); }
+  for (let i = 0; i < 6; i++) { g.fillStyle = 'rgba(70,8,4,0.6)'; g.fillRect(X(-0.04 + Math.random() * 0.08), Y(0.1), S(0.002), S(0.03 + Math.random() * 0.08)); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+function buildDeformedFace() {
+  if (!deformedGeo) {
+    const { ell, cone, sphere } = sd;
+    const f = (x, y, z) => {
+      let d = ell(x, y, z, 0, 0.026, -0.006, 0.083, 0.098, 0.1);
+      d = smin(d, ell(x, y, z, 0.006, -0.044, 0.026, 0.06, 0.066, 0.074), 0.04);
+      d = smin(d, ell(x, y, z, 0.012, -0.098, 0.06, 0.03, 0.02, 0.02), 0.03);                       // a jaw pushed to one side
+      d = smin(d, ell(x, y, z, 0.032, 0.046, 0.082, 0.03, 0.022, 0.018), 0.02);                    // the brow swollen out over one eye
+      d = smin(d, ell(x, y, z, -0.045, -0.03, 0.074, 0.026, 0.024, 0.02), 0.025);                  // a lump of a cheek
+      d = smin(d, ell(x, y, z, 0.05, 0.075, 0.05, 0.03, 0.025, 0.025), 0.02);
+      d = ssub(d, sphere(x, y, z, -0.031, 0.018, 0.1, 0.016), 0.012);                              // one socket
+      d = ssub(d, sphere(x, y, z, 0.031, 0.004, 0.098, 0.02), 0.012);                              // the other, sagging lower and bigger
+      d = smin(d, cone(x, y, z, 0, 0.01, 0.094, -0.004, -0.018, 0.1, 0.007, 0.009), 0.01);         // what's left of the nose
+      d = ssub(d, ell(x, y, z, 0.004, -0.066, 0.096, 0.026, 0.009, 0.02), 0.008);                  // the mouth
+      return d;
+    };
+    const shell = (x, y, z) => Math.max(f(x, y, z) - 0.002, 0.025 - z);
+    const g = mesh(shell, [-0.1, MASK_Y0, 0.0], [0.1, 0.13, 0.13], 0.0026);
+    const p = g.attributes.position, uv = new Float32Array(p.count * 2);
+    for (let i = 0; i < p.count; i++) { uv[i * 2] = p.getX(i) / MASK_W + 0.5; uv[i * 2 + 1] = (p.getY(i) - MASK_Y0) / MASK_H; }
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    deformedGeo = g;
+  }
+  const grp = new THREE.Group();
+  grp.add(new THREE.Mesh(deformedGeo, new THREE.MeshStandardMaterial({ map: deformedTex, roughness: 0.55 })));
+  const tooth = new THREE.MeshStandardMaterial({ color: 0xb8a878, roughness: 0.4 });
+  for (const [x, y, r] of [[-0.012, -0.062, 0.3], [-0.002, -0.06, -0.2], [0.01, -0.063, 0.5], [0.018, -0.07, -0.4], [-0.006, -0.071, 0.1]]) { const t = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.01, 0.004), tooth); t.position.set(x, y, 0.1); t.rotation.z = r; grp.add(t); }
+  const gash = new THREE.Mesh(new THREE.CircleGeometry(0.024, 16), new THREE.MeshBasicMaterial({ color: 0x0a0202 })); gash.scale.y = 0.42; gash.position.set(0.004, -0.066, 0.094); grp.add(gash);
+  grp.scale.setScalar(1.06); grp.position.z = 0.004;
+  grp.visible = false;
+  return grp;
+}
 function buildHockeyMask() {
   if (!maskGeoJ) {
     const { ell, cone, sphere } = sd;
@@ -2020,6 +2146,7 @@ function spawnHunter(x, z) {
   for (const e of [...(JN.eyes ?? []), ...(JN.lids ?? [])]) e.visible = false;
   for (const [x, y] of MASK_EYES) { const dark = new THREE.Mesh(new THREE.CircleGeometry(0.024, 16), new THREE.MeshBasicMaterial({ color: 0x000000 })); dark.scale.y = 0.75; dark.position.set(x, y, 0.094); mask.add(dark); }
   JN.parts.head.g.add(mask); JN.mask = mask;
+  JN.deformed = buildDeformedFace(); JN.parts.head.g.add(JN.deformed);
   // the shirt: dark charcoal-green work shirt, filthy, old blood down the front
   { const g = JN.shirtCanvas.getContext('2d'); g.globalCompositeOperation = 'source-over'; g.fillStyle = '#1e221a'; g.fillRect(0, 0, 256, 256);
     for (let i = 0; i < 2500; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '6,8,5' : '44,48,38'},${Math.random() * 0.2})`; g.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 2, 2 + Math.random() * 5); }
@@ -2092,7 +2219,7 @@ function updateHunter(dt) {
   const J = JN; if (!J) return;
   const a = J.ai, me = J.root, P0 = headPos();
   J.update(dt, groundAt, pushRoot);
-  if (scare) { scare.t += dt; J.pose = scare.t < 0.25 ? 'raise' : 'strike'; return; }
+  if (scare) return;
   if (J.mode !== 'anim') { J.pose = 'idle'; a.state = 'down'; return; }
   if (a.state === 'down') { a.state = 'search'; a.wait = 0; J.tilt = 0.4; }
   J.tilt = (J.tilt ?? 0) * (1 - dt * 0.4);
@@ -2236,7 +2363,7 @@ function grabVictim(d) {
 function playerFound(sp) {
   P.hidden = null; sp.occ = null; updateCrack(0);
   caption('', 0.1);
-  playerDies();
+  playerDies('doors');
 }
 // what the music should be doing
 function updateMoods() {
@@ -2265,12 +2392,12 @@ function updateHunt(dt) {
   if (JN) JN.sync();
   for (const it of items) it.glint.scale.setScalar(0.08 + 0.06 * Math.max(0, Math.sin(RUN.t * 2 + it.x)) ** 4);
   for (const h of hands()) { if (h.gun && h.trigger && !h.trigPrev) fireGun(h); h.trigPrev = h.trigger; }
-  if (scare) { const e = JN.p.head; camera.getWorldPosition(tv); if (!inVR) { const yaw = Math.atan2(-(e.x - tv.x), -(e.z - tv.z)); deskYaw += angDiff(yaw, deskYaw) * Math.min(1, dt * 12); deskPitch += (Math.atan2(e.y - tv.y, Math.hypot(e.x - tv.x, e.z - tv.z)) - deskPitch) * Math.min(1, dt * 12); camera.rotation.set(deskPitch, deskYaw, 0); } P.hurtT = 0; }
+  updateScare(dt);
   boat.position.y = WATER_Y + Math.sin(RUN.t * 1.3) * 0.03;
   if (H.won === 'boat') { boat.position.z -= dt * Math.min(8, (RUN.t % 100) * 2); }
 }
 function startHuntNight() {
-  H.hits = 0; H.items.clear(); H.task = null; H.won = false; H.dead = false; H.battery = false; H.witnessT = -99; scare = null;
+  H.hits = 0; H.items.clear(); H.task = null; H.won = false; H.dead = false; H.battery = false; H.witnessT = -99; clearScare();
   P.hidden = null; updateCrack(0);
   for (const sp of HIDING) { sp.occ = null; sp.target = 0; setSpotOpen(sp, 0); }
   for (const h of allHands()) if (h.gun) { h.glove.remove(h.gun.mesh); h.gun = null; }
@@ -2446,5 +2573,5 @@ function step(time) {
 renderer.setAnimationLoop(frame);
 
 // for poking at things from the console
-window.jr = { frame, hideAI, get JN() { return JN; }, H, items, HIDING, enterHide, leaveHide, playerHit, knockdown, spawnHunter, camp, LAMPS, BUILDINGS, DOORS, HIDING, AREA, SET, THREE, scene, renderer, RUN, P, S, counselors, police, tools, sim, blood, rig, camera, desk, vrHands, startNight, endNight, policeArrive, caption, grab, drop, killName, holsters, body, cutPhone, killPower,
+window.jr = { frame, hideAI, playerDies, clearScare, get scare() { return scare; }, get JN() { return JN; }, H, items, HIDING, enterHide, leaveHide, playerHit, knockdown, spawnHunter, camp, LAMPS, BUILDINGS, DOORS, HIDING, AREA, SET, THREE, scene, renderer, RUN, P, S, counselors, police, tools, sim, blood, rig, camera, desk, vrHands, startNight, endNight, policeArrive, caption, grab, drop, killName, holsters, body, cutPhone, killPower,
   get state() { return { started, inVR, paused }; }, begin, look(y, p) { deskYaw = y; deskPitch = p; }, tp(x, z) { rig.position.x = x; rig.position.z = z; } };

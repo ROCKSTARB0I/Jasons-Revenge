@@ -4,7 +4,7 @@
 // Y runs from the joint it hangs from to the next joint, Z is the body's front,
 // X its right. Lengths match the skeleton in body.js.
 import * as THREE from '../vendor/three.module.js';
-import { sd, smin, ssub, mesh, uvCylinder, uvSphere } from './sculpt.js?v=17';
+import { sd, smin, ssub, mesh, uvCylinder, uvSphere } from './sculpt.js?v=18';
 
 const { sphere, ell, cone, box } = sd;
 export const LEN = { hips: 0.21, torso: 0.36, neck: 0.14, upper: 0.281, fore: 0.25, hand: 0.17, thigh: 0.42, shin: 0.416, foot: 0.17 };

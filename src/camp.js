@@ -2,8 +2,8 @@
 // buildings (from the kit in build.js), the woods, the fence, and a walk grid the
 // counselors find their way round with.
 import * as THREE from '../vendor/three.module.js';
-import { makeKit, kitMaterials } from './build.js?v=17';
-import { areaById } from './areas.js?v=17';
+import { makeKit, kitMaterials } from './build.js?v=18';
+import { areaById } from './areas.js?v=18';
 
 export const BOUND = 58;                 // the woods close in past this
 let SHORE = x => -30 + Math.sin(x * 0.07) * 3 + Math.sin(x * 0.19 + 1) * 1.2;
@@ -254,12 +254,17 @@ export function buildCamp(scene, world, areaId) {
   // ---- sky: a dome that's dark overhead and greys toward the tree line, and thin cloud
   {
     const dome = new THREE.SphereGeometry(470, 32, 16), col = new Float32Array(dome.attributes.position.count * 3);
-    for (let i = 0; i < dome.attributes.position.count; i++) { const y = dome.attributes.position.getY(i) / 470, k = Math.pow(Math.max(0, 1 - Math.max(0, y) * 1.6), 2.2); col[i * 3] = 0.024 + k * 0.1; col[i * 3 + 1] = 0.035 + k * 0.12; col[i * 3 + 2] = 0.06 + k * 0.16; }
+    for (let i = 0; i < dome.attributes.position.count; i++) { const y = dome.attributes.position.getY(i) / 470, k = Math.pow(Math.max(0, 1 - Math.max(0, y) * 1.6), 2.2); col[i * 3] = 0.024 + k * 0.054; col[i * 3 + 1] = 0.035 + k * 0.075; col[i * 3 + 2] = 0.06 + k * 0.097; }   // the horizon matches the haze
     dome.setAttribute('color', new THREE.BufferAttribute(col, 3));
     scene.add(new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })));
   }
-  const cloudTex = canvasTex(512, 512, (g, w, h) => { for (let i = 0; i < 70; i++) { const x = Math.random() * w, y = Math.random() * h, r = 30 + Math.random() * 90, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(150,160,180,0.16)'); gr.addColorStop(1, 'rgba(150,160,180,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); } }, [2, 2]);
-  const clouds = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, depthWrite: false, fog: false }));
+  const cloudTex = canvasTex(512, 512, (g, w, h) => { for (let i = 0; i < 70; i++) { const x0 = Math.random() * w, y0 = Math.random() * h, r = 30 + Math.random() * 90;
+    for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) { const x = x0 + ox, y = y0 + oy, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(150,160,180,0.16)'); gr.addColorStop(1, 'rgba(150,160,180,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); } } }, [2, 2]);   // wrapped, so the tiles meet without a seam
+  // the cloud sheet thins out toward its rim, so it never shows an edge above the tree line
+  const cloudGeo = new THREE.CircleGeometry(450, 64), cA = new Float32Array(cloudGeo.attributes.position.count * 4);
+  for (let i = 0; i < cloudGeo.attributes.position.count; i++) { const d = Math.hypot(cloudGeo.attributes.position.getX(i), cloudGeo.attributes.position.getY(i)) / 450; cA.set([1, 1, 1, 1 - d], i * 4); }
+  cloudGeo.setAttribute('color', new THREE.BufferAttribute(cA, 4));
+  const clouds = new THREE.Mesh(cloudGeo, new THREE.MeshBasicMaterial({ map: cloudTex, vertexColors: true, transparent: true, depthWrite: false, fog: false }));
   clouds.rotation.x = Math.PI / 2; clouds.position.y = 140; scene.add(clouds);
   // ---- sky: stars, a big moon
   const stars = new THREE.BufferGeometry(), sp = [];
@@ -583,14 +588,43 @@ export function buildCamp(scene, world, areaId) {
   };
   seed = 1337 + A.id.length * 97;
   for (let i = 0; i < 7000 && trees.length < 950; i++) {
-    const x = (srand() * 2 - 1) * 110, z = -28 + srand() * 140;
+    const x = (srand() * 2 - 1) * 78, z = -28 + srand() * 108;
     const edge = Math.max(Math.abs(x), z) > BOUND - 6;
     if (!edge && srand() > A.trees) continue;   // the camp itself is mostly open
     if (!clear(x, z)) continue;
     const oak = A.forest === 'oak' ? srand() < 0.8 : A.forest === 'mixed' ? srand() < 0.4 : false;
     trees.push(oak ? { x, z, h: 6 + srand() * 4, r: 3 + srand() * 2.5, oak: true } : { x, z, h: 12 + srand() * 12, r: 2 + srand() * 1.4, birch: !oak && srand() < 0.1 });
   }
-  for (let i = 0; i < 400; i++) { const x = -250 + srand() * 500, z = -95 - srand() * 60; trees.push({ x, z, h: 10 + srand() * 14, r: 2.5 + srand() * 2, far: true }); }
+  // the far tree line, all the way round: painted ridges of forest fading into the haze (two layers for depth),
+  // instead of hundreds of distant 3D trees that only ever read as stacked triangles
+  const ridgeTex = (seed0, dark) => canvasTex(2048, 512, (g, w, h) => {
+    let sd0 = seed0; const rnd = () => (sd0 = (sd0 * 16807) % 2147483647) / 2147483647;
+    g.clearRect(0, 0, w, h);
+    const base = x => h * 0.86 - (Math.sin(x / w * Math.PI * 6 + seed0) * 0.07 + Math.sin(x / w * Math.PI * 17 + seed0 * 2) * 0.03) * h;   // the lie of the hills
+    const top = dark ? '#0a0f16' : '#121a25', bot = dark ? '#070b10' : '#0c121a';
+    const fill = g.createLinearGradient(0, h * 0.25, 0, h); fill.addColorStop(0, top); fill.addColorStop(1, bot);
+    g.fillStyle = fill;
+    g.beginPath(); g.moveTo(0, h); for (let x = 0; x <= w; x += 8) g.lineTo(x, base(x)); g.lineTo(w, h); g.fill();
+    for (let i = 0; i < 900; i++) {
+      const x = rnd() * w, b = base(x), pine = rnd() < 0.72, th = (pine ? 0.16 + rnd() * 0.3 : 0.1 + rnd() * 0.14) * h * (dark ? 0.85 : 1), tw = th * (pine ? 0.22 + rnd() * 0.12 : 0.6 + rnd() * 0.4);
+      if (pine) {   // a spruce: a ragged spire, the branches sticking out in uneven tiers
+        g.beginPath(); g.moveTo(x, b - th);
+        for (let k = 1; k <= 7; k++) { const y = b - th + th * k / 7, half = tw / 2 * (k / 7) * (0.8 + rnd() * 0.5); g.lineTo(x + half, y); g.lineTo(x + half * 0.55, y + th * 0.02); }
+        for (let k = 7; k >= 1; k--) { const y = b - th + th * k / 7, half = tw / 2 * (k / 7) * (0.8 + rnd() * 0.5); g.lineTo(x - half * 0.55, y + th * 0.02); g.lineTo(x - half, y); }
+        g.closePath(); g.fill();
+      } else {   // a leafy crown: a lumpy cloud of a tree
+        for (let k = 0; k < 6; k++) { g.beginPath(); g.ellipse(x + (rnd() - 0.5) * tw * 0.7, b - th * (0.45 + rnd() * 0.45), tw * (0.25 + rnd() * 0.2), th * (0.22 + rnd() * 0.15), 0, 0, 7); g.fill(); }
+      }
+    }
+    // the haze: the tops of the far trees fade toward the sky
+    g.globalCompositeOperation = 'source-atop';
+    const haze = g.createLinearGradient(0, h * 0.2, 0, h * 0.9); haze.addColorStop(0, dark ? 'rgba(30,40,56,0.18)' : 'rgba(40,52,72,0.45)'); haze.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = haze; g.fillRect(0, 0, w, h);
+  }, [3, 1]);
+  for (const [rad, hgt, y0, seedR, dark] of [[230, 95, -8, 7, false], [170, 70, -6, 13, true]]) {
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, hgt, 64, 1, true), new THREE.MeshBasicMaterial({ map: ridgeTex(seedR, dark), transparent: true, alphaTest: 0.35, side: THREE.BackSide, fog: false, depthWrite: false }));
+    ring.position.y = y0 + hgt / 2; ring.renderOrder = -5; scene.add(ring);
+  }
   const birchMat = new THREE.MeshLambertMaterial({ color: 0xc8c4b8, map: canvasTex(64, 128, (g, w, h) => { g.fillStyle = '#ddd8cc'; g.fillRect(0, 0, w, h); for (let i = 0; i < 40; i++) { g.fillStyle = '#1e1c1a'; g.fillRect(Math.random() * w, Math.random() * h, 4 + Math.random() * 14, 2); } }) });
   const pines = trees.filter(t => !t.birch && !t.oak), birches = trees.filter(t => t.birch), oaks = trees.filter(t => t.oak);
   const trunks = new THREE.InstancedMesh(trunkGeo, M.bark, pines.length), birchI = new THREE.InstancedMesh(trunkGeo, birchMat, birches.length);

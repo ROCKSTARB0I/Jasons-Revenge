@@ -2,8 +2,8 @@
 // buildings (from the kit in build.js), the woods, the fence, and a walk grid the
 // counselors find their way round with.
 import * as THREE from '../vendor/three.module.js';
-import { makeKit, kitMaterials } from './build.js?v=18';
-import { areaById } from './areas.js?v=18';
+import { makeKit, kitMaterials } from './build.js?v=19';
+import { areaById } from './areas.js?v=19';
 
 export const BOUND = 58;                 // the woods close in past this
 let SHORE = x => -30 + Math.sin(x * 0.07) * 3 + Math.sin(x * 0.19 + 1) * 1.2;
@@ -289,8 +289,8 @@ export function buildCamp(scene, world, areaId) {
     if (rectHeight(FLOORS, x, z) > -9) y = 0;
     if (z < SHORE(x)) y = Math.max(-3, (z - SHORE(x)) * 0.15);
     const edge = Math.max(Math.abs(x), z) - BOUND;
-    if (edge > 0 && z > SHORE(x) + 4) y += edge * edge * 0.02 + Math.sin(x * 0.1) * Math.cos(z * 0.13) * edge * 0.15;
-    if (z < -70) y += Math.max(0, -70 - z) * 0.25 + Math.sin(x * 0.05) * 3;
+    if (edge > 0 && z > SHORE(x) + 4) y += Math.min(1.5, edge * 0.06);   // just a low bank out past the woods, no hills
+    if (z < -70) y += Math.min(4, Math.max(0, -70 - z) * 0.4);   // the far shore climbs out of the water, then stays low and flat
     gp.setY(i, y);
     let pd = 99; for (const p of paths) pd = Math.min(pd, segD(x, z, p));
     const dirt = Math.max(0, 1 - pd / 1.5) * (0.75 + 0.25 * Math.sin(x * 3.1 + z * 2.3)), fire = Math.max(0, 1 - Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) / 5);
@@ -600,7 +600,7 @@ export function buildCamp(scene, world, areaId) {
   const ridgeTex = (seed0, dark) => canvasTex(2048, 512, (g, w, h) => {
     let sd0 = seed0; const rnd = () => (sd0 = (sd0 * 16807) % 2147483647) / 2147483647;
     g.clearRect(0, 0, w, h);
-    const base = x => h * 0.86 - (Math.sin(x / w * Math.PI * 6 + seed0) * 0.07 + Math.sin(x / w * Math.PI * 17 + seed0 * 2) * 0.03) * h;   // the lie of the hills
+    const base = x => h * 0.9 - Math.sin(x / w * Math.PI * 17 + seed0 * 2) * 0.006 * h;   // flat ground under the trees
     const top = dark ? '#0a0f16' : '#121a25', bot = dark ? '#070b10' : '#0c121a';
     const fill = g.createLinearGradient(0, h * 0.25, 0, h); fill.addColorStop(0, top); fill.addColorStop(1, bot);
     g.fillStyle = fill;

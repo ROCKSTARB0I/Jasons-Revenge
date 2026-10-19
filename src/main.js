@@ -1,19 +1,19 @@
 // JASON'S REVENGE -- Camp Crystal Lake, Friday the 13th.
 import * as THREE from '../vendor/three.module.js';
-import { Sim, STEP, segDist } from './sim.js?v=18';
-import { Human } from './body.js?v=18';
-import { sd, smin, ssub, mesh } from './sculpt.js?v=18';
-import { Blood } from './blood.js?v=18';
-import { sfx } from './sfx.js?v=18';
-import { score } from './score.js?v=18';
-import { Rain } from './rain.js?v=18';
-import { AREAS } from './areas.js?v=18';
-import { WINDMILL } from './camp.js?v=18';
-import { walkable } from './camp.js?v=18';
-import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, SURFACES, DOCK, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=18';
-import { buildHand, makeBody, poseBody, skinMat, cleanSkinMat, flannelMat } from './jason.js?v=18';
+import { Sim, STEP, segDist } from './sim.js?v=19';
+import { Human } from './body.js?v=19';
+import { sd, smin, ssub, mesh } from './sculpt.js?v=19';
+import { Blood } from './blood.js?v=19';
+import { sfx } from './sfx.js?v=19';
+import { score } from './score.js?v=19';
+import { Rain } from './rain.js?v=19';
+import { AREAS } from './areas.js?v=19';
+import { WINDMILL } from './camp.js?v=19';
+import { walkable } from './camp.js?v=19';
+import { buildCamp, AREA, TOOL_SPOTS, DOORS, HIDING, BUILDINGS, LAMPS, SURFACES, DOCK, groundAt, restAt, inLake, WATER_Y, CAMPFIRE, CAR, ROAD_END, START, LODGE, SPOTS, HIDES, WEAPON_SPOTS, BEDS, SHED, PHONE, JUNCTION, GENERATOR, WINDOW_MAT, CABINS, GATE, FENCE, findPath, sightClear, BOUND, shoreZ } from './camp.js?v=19';
+import { buildHand, makeBody, poseBody, skinMat, cleanSkinMat, flannelMat } from './jason.js?v=19';
 const glove = side => new URLSearchParams(location.search).get('mode') === 'counselor' ? buildHand(side, cleanSkinMat, true) : buildHand(side);
-import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=18';
+import { WEAPONS, GRIPS, buildWeapon, buildSheath, buildFlashlight, WM } from './weapons.js?v=19';
 
 const V3 = THREE.Vector3, $ = id => document.getElementById(id);
 const NEG_Z = new V3(0, 0, -1), UP = new V3(0, 1, 0), X_AXIS = new V3(1, 0, 0);
